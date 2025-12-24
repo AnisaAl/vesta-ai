@@ -6,7 +6,8 @@ import {
   TrendingUp, 
   ShoppingBag,
   Menu,
-  X
+  X,
+  Shirt
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,11 @@ export function MainLayout({ children }: MainLayoutProps) {
       icon: <User className="w-4 h-4 mr-2" /> 
     },
     { 
+      href: '/wardrobe', 
+      label: 'Wardrobe', 
+      icon: <Shirt className="w-4 h-4 mr-2" /> 
+    },
+    { 
       href: '/recommendations', 
       label: 'Recommendations', 
       icon: <ShoppingBag className="w-4 h-4 mr-2" /> 
@@ -43,7 +49,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       href: '/trends', 
       label: 'Trends', 
       icon: <TrendingUp className="w-4 h-4 mr-2" /> 
-    },
+    }
   ];
 
   return (
@@ -54,7 +60,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           <div className="flex items-center">
             <Link href="/">
               <span className="text-xl font-bold bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent flex items-center cursor-pointer">
-                Fashion AI
+                Vesta AI
               </span>
             </Link>
           </div>
@@ -124,7 +130,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       {/* Footer */}
       <footer className="bg-background border-t py-6">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>© 2025 Fashion AI Companion. All rights reserved.</p>
+          <p>© 2025 Vesta AI Companion. All rights reserved.</p>
         </div>
       </footer>
     </div>
