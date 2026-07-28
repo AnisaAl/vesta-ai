@@ -83,3 +83,10 @@ This will start both the backend server and frontend application.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## PostgreSQL
+To start postgresql@15 now and restart at login:
+  brew services start postgresql@15
+Or, if you don't want/need a background service you can just run:
+  LC_ALL="C" /opt/homebrew/opt/postgresql@15/bin/postgres -D /opt/homebrew/var/postgresql@15
+==> python@3.10

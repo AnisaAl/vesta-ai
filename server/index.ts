@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import path from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
@@ -6,6 +7,19 @@ const app = express();
 // Increase the payload size limit to 50MB for handling images
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+
+// Serve DeepFashion-MultiModal images as static files
+const deepFashionImagesPath = path.join(
+  process.cwd(),
+  "server",
+  "data",
+  "DeepFashion-MultiModal",
+  "images",
+);
+app.use(
+  "/data/deepfashion/images",
+  express.static(deepFashionImagesPath),
+);
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -60,12 +74,16 @@ app.use((req, res, next) => {
   // ALWAYS serve the app on port 5000
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
+  // const port = 3000;
+  // server.listen({
+  //   port,
+  //   host: "0.0.0.0",
+  //   reusePort: true,
+  // }, () => {
+  //   log(`serving on port ${port}`);
+  // });
+  const PORT = Number(process.env.PORT) || 3000;
+  server.listen(PORT, 'localhost', () => {
+    console.log(`Server running on http://localhost:${PORT}`);
   });
 })();

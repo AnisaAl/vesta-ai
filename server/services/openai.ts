@@ -1,10 +1,11 @@
-import OpenAI from "openai";
+import Anthropic from '@anthropic-ai/sdk';
 import { Message } from "@shared/schema";
 import { generateLocalFashionResponse } from "./fashionData";
+import { getDeepFashionOutfits } from "./deepFashion";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY || "" 
+const anthropic = new Anthropic({ 
+  apiKey: process.env.ANTHROPIC_API_KEY || "" 
 });
 
 // Flag to track if we've encountered an API rate limit or quota issue
@@ -57,7 +58,9 @@ Important guidelines:
 6. Keep responses concise but informative.
 7. When responding to image uploads, provide tailored advice specific to what appears in the image.
 
-For non-fashion questions or small talk, respond in a friendly manner while gently steering the conversation back to fashion when appropriate.`;
+For non-fashion questions or small talk, respond in a friendly manner while gently steering the conversation back to fashion when appropriate.
+
+When the user requests recommendations for specific clothing items, colors, or outfit types, ALWAYS include outfit recommendations in the JSON response with imageUrl fields. The outfits array should contain items with id, name, description, and imageUrl fields. Even if you're providing color recommendations, try to also include relevant outfit suggestions to help the user visualize complete looks.`;
 
 /**
  * Generate fashion response using OpenAI, optionally with image analysis
@@ -94,23 +97,37 @@ export async function generateFashionResponse(
   }
   
   try {
-    // Convert history to OpenAI format
+    // Convert history to Anthropic format
     const conversationHistory = prepareConversationHistory(history);
     
     // Create the messages array
     let messages: any[] = [
-      { role: "system", content: SYSTEM_PROMPT },
       ...conversationHistory
     ];
 
     // If image is provided, add it to the messages with appropriate prompt
     if (imageData) {
-      // Extract the base64 data from the data URL format if needed
-      const base64Data = imageData.includes('base64,') 
-        ? imageData 
-        : `data:image/jpeg;base64,${imageData}`;
+      // Extract the base64 data and media type from the data URL format if needed
+      let base64Data: string;
+      let mediaType: string = "image/jpeg";
       
-      // Add the user message with image
+      if (imageData.includes('base64,')) {
+        // Data URL format: data:image/jpeg;base64,<data>
+        const parts = imageData.split(',');
+        const header = parts[0];
+        base64Data = parts[1];
+        
+        // Extract media type from header
+        const mediaTypeMatch = header.match(/data:([^;]+)/);
+        if (mediaTypeMatch) {
+          mediaType = mediaTypeMatch[1];
+        }
+      } else {
+        // Just base64 data, assume JPEG
+        base64Data = imageData;
+      }
+      
+      // Add the user message with image (Anthropic format)
       messages.push({
         role: "user",
         content: [
@@ -119,9 +136,11 @@ export async function generateFashionResponse(
             text: userMessage || "Please analyze this fashion item and provide styling advice."
           },
           {
-            type: "image_url",
-            image_url: {
-              url: base64Data
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: mediaType,
+              data: base64Data
             }
           }
         ]
@@ -131,15 +150,87 @@ export async function generateFashionResponse(
       messages.push({ role: "user", content: userMessage });
     }
 
-    // Call OpenAI API with multimodal capability
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o", // newest model
-      messages: messages,
-      temperature: 0.7,
-      max_tokens: 1000,
-    });
+    // Call Anthropic API with multimodal capability
+    // Try models in order of preference (newest to oldest)
+    const models = [
+      "claude-3-5-sonnet-20241022", // Latest and most capable
+      "claude-3-sonnet-20240229",   // Fallback option
+      "claude-3-haiku-20240307"     // Fastest, most cost-effective
+    ];
+    
+    let response;
+    let lastError;
+    
+    // Try each model until one works
+    for (const model of models) {
+      try {
+        response = await anthropic.messages.create({
+          model: model,
+          system: SYSTEM_PROMPT,
+          messages: messages,
+          temperature: 0.7,
+          max_tokens: 1000,
+        });
+        break; // Success, exit loop
+      } catch (error: any) {
+        lastError = error;
+        // If it's a 404 (model not found), try next model
+        if (error?.status === 404 && models.indexOf(model) < models.length - 1) {
+          console.log(`Model ${model} not available, trying next model...`);
+          continue;
+        }
+        // For other errors or if it's the last model, throw
+        throw error;
+      }
+    }
+    
+    if (!response) {
+      throw lastError || new Error("Failed to get response from any model");
+    }
 
-    const assistantMessage = response.choices[0].message.content || "I'm sorry, I couldn't generate a response.";
+    let assistantMessage = response.content[0].type === 'text' ? response.content[0].text : "I'm sorry, I couldn't generate a response.";
+
+    // Enhance response with DeepFashion-MultiModal items if the query is about clothing/outfits
+    // and the response doesn't already include outfit recommendations
+    const lowerMessage = userMessage.toLowerCase();
+    const isClothingQuery = lowerMessage.includes('shirt') || lowerMessage.includes('dress') || 
+                            lowerMessage.includes('pants') || lowerMessage.includes('trouser') ||
+                            lowerMessage.includes('coat') || lowerMessage.includes('sweater') ||
+                            lowerMessage.includes('pullover') || lowerMessage.includes('sneaker') ||
+                            lowerMessage.includes('boot') || lowerMessage.includes('sandal') ||
+                            lowerMessage.includes('bag') || lowerMessage.includes('outfit') ||
+                            lowerMessage.includes('clothes') || lowerMessage.includes('clothing') ||
+                            lowerMessage.includes('wear') || lowerMessage.includes('recommendation');
+    
+    if (isClothingQuery) {
+      // Try to get DeepFashion items and append to response
+      try {
+        const deepFashionOutfits = getDeepFashionOutfits(lowerMessage, 4);
+        if (deepFashionOutfits.length > 0) {
+          // Extract existing JSON if any, or create new structure
+          const jsonMatch = assistantMessage.match(/```json([\s\S]*?)```/);
+          if (jsonMatch) {
+            // Update existing JSON
+            try {
+              const existingJson = JSON.parse(jsonMatch[1].trim());
+              existingJson.outfits = deepFashionOutfits;
+              assistantMessage = assistantMessage.replace(
+                /```json[\s\S]*?```/,
+                `\`\`\`json\n${JSON.stringify(existingJson, null, 2)}\n\`\`\``
+              );
+            } catch (e) {
+              // If parsing fails, append new JSON
+              assistantMessage += `\n\n\`\`\`json\n${JSON.stringify({ outfits: deepFashionOutfits }, null, 2)}\n\`\`\``;
+            }
+          } else {
+            // Append new JSON block
+            assistantMessage += `\n\n\`\`\`json\n${JSON.stringify({ outfits: deepFashionOutfits }, null, 2)}\n\`\`\``;
+          }
+        }
+      } catch (error) {
+        console.error('Error adding DeepFashion items to response:', error);
+      }
+    }
 
     return {
       message: assistantMessage,
@@ -150,7 +241,7 @@ export async function generateFashionResponse(
     
     // Check if it's a quota/rate-limit error
     if (error?.status === 429 || (error?.error?.type === 'insufficient_quota')) {
-      console.log("OpenAI API quota exceeded, switching to local data mode");
+      console.log("Anthropic API quota exceeded, switching to local data mode");
       useLocalDataFallback = true;
       
       // Use local data as fallback

@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { messageSchema } from "@shared/schema";
 import { generateFashionResponse } from "./services/openai";
+import { processVirtualTryOn } from "./services/virtualTryOn";
+import { getDeepFashionRecommendations, getDeepFashionOutfits } from "./services/deepFashion";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Chat endpoint
@@ -137,6 +139,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Invalid chat history data', errors: error.errors });
       }
       return res.status(500).json({ message: 'Error updating chat history' });
+    }
+  });
+
+  // Virtual try-on endpoint
+  app.post('/api/virtual-try-on', async (req, res) => {
+    try {
+      const requestSchema = z.object({
+        userPhoto: z.string(), // Base64 encoded image
+        productImage: z.string(), // Base64 encoded image
+        productName: z.string().optional(),
+      });
+
+      const validatedData = requestSchema.parse(req.body);
+      
+      // Process virtual try-on
+      const result = await processVirtualTryOn({
+        userPhoto: validatedData.userPhoto,
+        productImage: validatedData.productImage,
+        productName: validatedData.productName || 'Product',
+      });
+      
+      return res.json(result);
+    } catch (error) {
+      console.error('Error processing virtual try-on:', error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid request data', errors: error.errors });
+      }
+      return res.status(500).json({ 
+        message: error instanceof Error ? error.message : 'Error processing virtual try-on' 
+      });
+    }
+  });
+
+  // Get fashion recommendations from DeepFashion-MultiModal dataset
+  app.get('/api/recommendations', async (req, res) => {
+    try {
+      const query = req.query.query as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 12;
+      
+      let outfits;
+      if (query) {
+        // Get items based on query
+        outfits = getDeepFashionOutfits(query, limit);
+      } else {
+        // Get diverse items from all categories
+        outfits = getDeepFashionRecommendations(limit);
+      }
+      
+      return res.json({
+        success: true,
+        outfits: outfits,
+        count: outfits.length
+      });
+    } catch (error) {
+      console.error('Error getting recommendations:', error);
+      return res.status(500).json({ 
+        message: error instanceof Error ? error.message : 'Error getting recommendations' 
+      });
     }
   });
 

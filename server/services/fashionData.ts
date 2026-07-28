@@ -6,20 +6,7 @@ import {
   FashionOutfit, 
   FashionAccessory 
 } from '../../client/src/lib/types';
-
-// Fashion-MNIST categories
-const FASHION_CATEGORIES = [
-  'T-shirt/top',
-  'Trouser',
-  'Pullover',
-  'Dress',
-  'Coat',
-  'Sandal',
-  'Shirt',
-  'Sneaker',
-  'Bag',
-  'Ankle boot'
-];
+import { getDeepFashionOutfits } from './deepFashion';
 
 // Fashion color palettes for different seasons
 const SEASONAL_COLORS: Record<string, FashionColor[]> = {
@@ -297,7 +284,7 @@ export function generateLocalFashionResponse(query: string): TrendResponse {
   
   // Prepare response
   const response: TrendResponse = {
-    message: `Here are some fashion recommendations based on the Fashion-MNIST dataset:`
+    message: `Here are some fashion recommendations based on our DeepFashion-MultiModal dataset:`
   };
   
   if (isColorQuery) {
@@ -306,8 +293,17 @@ export function generateLocalFashionResponse(query: string): TrendResponse {
   }
   
   if (isOutfitQuery) {
-    response.outfits = getOutfitRecommendations(outfitType);
-    response.message += ` For ${outfitType} wear, consider options like ${response.outfits.map((o: FashionOutfit) => o.name).join(' or ')}.`;
+    // Try to get items from DeepFashion-MultiModal dataset first
+    const deepFashionOutfits = getDeepFashionOutfits(lowerQuery, 4);
+    
+    if (deepFashionOutfits.length > 0) {
+      response.outfits = deepFashionOutfits;
+      response.message += ` Here are some ${outfitType} options from our collection:`;
+    } else {
+      // Fallback to sample outfits if no match found
+      response.outfits = getOutfitRecommendations(outfitType);
+      response.message += ` For ${outfitType} wear, consider options like ${response.outfits.map((o: FashionOutfit) => o.name).join(' or ')}.`;
+    }
   }
   
   if (isAccessoryQuery) {
@@ -315,36 +311,40 @@ export function generateLocalFashionResponse(query: string): TrendResponse {
     response.message += ` Popular accessories include ${response.accessories.map((a: FashionAccessory) => a.name).join(', ')}.`;
   }
   
-  // If no specific query type identified, try to give general fashion advice
-  if (!isColorQuery && !isOutfitQuery && !isAccessoryQuery) {
-    // For "trend" related queries without specific color mentions
-    if (lowerQuery.includes('trend') || lowerQuery.includes('popular') || lowerQuery.includes('recommendation')) {
-      response.colors = getSeasonalColors(season);
-      response.outfits = getOutfitRecommendations(outfitType);
-      response.accessories = getAccessoryRecommendations().slice(0, 3);
+    // If no specific query type identified, try to give general fashion advice
+    if (!isColorQuery && !isOutfitQuery && !isAccessoryQuery) {
+      // For "trend" related queries without specific color mentions
+      if (lowerQuery.includes('trend') || lowerQuery.includes('popular') || lowerQuery.includes('recommendation')) {
+        response.colors = getSeasonalColors(season);
+        // Try to get items from DeepFashion
+        const deepFashionOutfits = getDeepFashionOutfits(lowerQuery, 4);
+        response.outfits = deepFashionOutfits.length > 0 ? deepFashionOutfits : getOutfitRecommendations(outfitType);
+        response.accessories = getAccessoryRecommendations().slice(0, 3);
+        
+        response.message = `Here are the trending fashion items for ${season}: 
+        - Colors: ${response.colors.map((c: FashionColor) => c.name).join(', ')}
+        - Outfits: ${response.outfits.map((o: FashionOutfit) => o.name).join(', ')}
+        - Accessories: ${response.accessories.map((a: FashionAccessory) => a.name).join(', ')}`;
+        
+        return response;
+      }
       
-      response.message = `Here are the trending fashion items for ${season}: 
-      - Colors: ${response.colors.map((c: FashionColor) => c.name).join(', ')}
-      - Outfits: ${response.outfits.map((o: FashionOutfit) => o.name).join(', ')}
-      - Accessories: ${response.accessories.map((a: FashionAccessory) => a.name).join(', ')}`;
+      // Check if it contains any fashion-related terms (using the array defined earlier)
+      const isFashionRelated = containsFashionTerms;
       
-      return response;
+      // Always provide some fashion advice for queries that seem remotely fashion-related
+      if (isFashionRelated || lowerQuery.length > 5) {
+        response.colors = getSeasonalColors(season);
+        // Try to get items from DeepFashion based on query
+        const deepFashionOutfits = getDeepFashionOutfits(lowerQuery, 2);
+        response.outfits = deepFashionOutfits.length > 0 ? deepFashionOutfits : getOutfitRecommendations(outfitType);
+        response.accessories = getAccessoryRecommendations().slice(0, 2);
+        response.message = `Here's a fashion suggestion for you: Try wearing colors like ${response.colors.slice(0, 2).map((c: FashionColor) => c.name).join(' or ')} with ${response.outfits[0].description.toLowerCase()}. Add ${response.accessories[0].name.toLowerCase()} to complete the look.`;
+      } else {
+        // If we can't determine if it's fashion related, give a prompt to clarify
+        response.message = "I'm not sure I understand your fashion question. Could you ask about specific trends, outfit recommendations, color palettes, or styling advice?";
+      }
     }
-    
-    // Check if it contains any fashion-related terms (using the array defined earlier)
-    const isFashionRelated = containsFashionTerms;
-    
-    // Always provide some fashion advice for queries that seem remotely fashion-related
-    if (isFashionRelated || lowerQuery.length > 5) {
-      response.colors = getSeasonalColors(season);
-      response.outfits = getOutfitRecommendations(outfitType);
-      response.accessories = getAccessoryRecommendations().slice(0, 2);
-      response.message = `Here's a fashion suggestion for you: Try wearing colors like ${response.colors.slice(0, 2).map((c: FashionColor) => c.name).join(' or ')} with ${response.outfits[0].description.toLowerCase()}. Add ${response.accessories[0].name.toLowerCase()} to complete the look.`;
-    } else {
-      // If we can't determine if it's fashion related, give a prompt to clarify
-      response.message = "I'm not sure I understand your fashion question. Could you ask about specific trends, outfit recommendations, color palettes, or styling advice?";
-    }
-  }
   
   return response;
 }

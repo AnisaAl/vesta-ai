@@ -41,11 +41,6 @@ export function MainLayout({ children }: MainLayoutProps) {
       icon: <Shirt className="w-4 h-4 mr-2" /> 
     },
     { 
-      href: '/recommendations', 
-      label: 'Recommendations', 
-      icon: <ShoppingBag className="w-4 h-4 mr-2" /> 
-    },
-    { 
       href: '/trends', 
       label: 'Trends', 
       icon: <TrendingUp className="w-4 h-4 mr-2" /> 

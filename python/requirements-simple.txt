@@ -1,0 +1,10 @@
+# Simplified requirements for Virtual Try-On service (demo mode)
+# These are the minimal dependencies needed to run the service
+
+flask>=2.3.0
+flask-cors>=4.0.0
+pillow>=9.0.0
+numpy>=1.21.0
+
+# Optional: For full Kolors integration, install PyTorch separately
+# See INSTALL_PYTORCH.md for instructions

@@ -1,0 +1,102 @@
+"""
+Example Python service for Kolors Virtual Try-On integration
+
+This is an example Flask service that can be used to integrate the Kolors Virtual Try-On library.
+To use this:
+
+1. Install dependencies:
+   pip install flask flask-cors pillow numpy torch transformers
+
+2. Set up Kolors library:
+   - Clone the Kolors repository: git clone https://github.com/Kwai-Kolors/Kolors
+   - Follow the Kolors setup instructions to install the library
+   - Download model weights using Hugging Face CLI
+
+3. Update the import path below to point to your Kolors installation
+
+4. Run this service:
+   python virtual_try_on_service.py
+
+5. Update the Node.js service to call this Python service (see server/services/virtualTryOn.ts)
+"""
+
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import base64
+import io
+from PIL import Image
+import numpy as np
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for cross-origin requests
+
+# TODO: Import and initialize Kolors model here
+# Example:
+# from kolors import KolorsModel
+# model = KolorsModel.from_pretrained('weights/Kolors')
+
+def base64_to_image(base64_string):
+    """Convert base64 string to PIL Image"""
+    image_data = base64.b64decode(base64_string)
+    image = Image.open(io.BytesIO(image_data))
+    return image
+
+def image_to_base64(image):
+    """Convert PIL Image to base64 string"""
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return img_str
+
+@app.route('/virtual-try-on', methods=['POST'])
+def virtual_try_on():
+    try:
+        data = request.json
+        
+        # Extract base64 images
+        user_photo_b64 = data.get('user_photo')
+        product_image_b64 = data.get('product_image')
+        product_name = data.get('product_name', 'Product')
+        
+        if not user_photo_b64 or not product_image_b64:
+            return jsonify({
+                'error': 'Missing required images',
+                'message': 'Both user_photo and product_image are required'
+            }), 400
+        
+        # Convert base64 to images
+        user_image = base64_to_image(user_photo_b64)
+        product_image = base64_to_image(product_image_b64)
+        
+        # TODO: Process with Kolors model
+        # Example:
+        # result_image = model.try_on(user_image, product_image)
+        
+        # For now, return a placeholder (you should replace this with actual Kolors processing)
+        # This is just for demonstration - you need to implement the actual Kolors integration
+        result_image = user_image  # Placeholder - replace with actual result
+        
+        # Convert result to base64
+        result_b64 = image_to_base64(result_image)
+        
+        return jsonify({
+            'result_image': result_b64,
+            'success': True,
+            'message': f'Virtual try-on completed for {product_name}'
+        })
+        
+    except Exception as e:
+        print(f"Error processing virtual try-on: {str(e)}")
+        return jsonify({
+            'error': 'Processing failed',
+            'message': str(e)
+        }), 500
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'healthy', 'service': 'virtual-try-on'})
+
+if __name__ == '__main__':
+    print("Starting Virtual Try-On service on http://localhost:8000")
+    print("Make sure to integrate the Kolors library before using this service")
+    app.run(host='0.0.0.0', port=8000, debug=True)
