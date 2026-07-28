@@ -3,7 +3,6 @@ import { Message } from "@shared/schema";
 import { generateLocalFashionResponse } from "./fashionData";
 import { getDeepFashionOutfits } from "./deepFashion";
 
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const anthropic = new Anthropic({ 
   apiKey: process.env.ANTHROPIC_API_KEY || "" 
 });
@@ -11,7 +10,7 @@ const anthropic = new Anthropic({
 // Flag to track if we've encountered an API rate limit or quota issue
 let useLocalDataFallback = false;
 
-// Helper function to prepare the chat history for OpenAI
+// Helper function to prepare the chat history for Anthropic
 function prepareConversationHistory(history: Message[]) {
   return history.map(msg => ({
     role: msg.role,
@@ -63,7 +62,7 @@ For non-fashion questions or small talk, respond in a friendly manner while gent
 When the user requests recommendations for specific clothing items, colors, or outfit types, ALWAYS include outfit recommendations in the JSON response with imageUrl fields. The outfits array should contain items with id, name, description, and imageUrl fields. Even if you're providing color recommendations, try to also include relevant outfit suggestions to help the user visualize complete looks.`;
 
 /**
- * Generate fashion response using OpenAI, optionally with image analysis
+ * Generate fashion response using Anthropic Claude, optionally with image analysis
  * @param userMessage User's text message
  * @param history Previous conversation history
  * @param imageData Optional base64 encoded image data

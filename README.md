@@ -1,92 +1,79 @@
-# Fashion AI Companion
+# Vesta AI (Fashion Companion)
 
-A mobile-first AI-powered fashion companion that transforms fashion discovery and personal styling through intelligent, adaptive technologies.
+Local-first AI fashion companion: chat styling advice, DeepFashion image suggestions, wardrobe/trends tabs, and demo virtual try-on. Shoppable affiliate catalog is planned next — **online-only, no owned inventory**.
 
 ## Features
 
-- **AI Fashion Assistant**: Chat with an AI that understands fashion trends and can provide personalized styling advice
-- **Image Analysis**: Upload images of clothing items or outfits to get tailored recommendations
-- **Multi-platform**: Available as both a web application and a native mobile app
-- **Chat History**: Review past conversations and fashion advice
-- **Robust Fallback System**: Uses Fashion-MNIST dataset when OpenAI API is unavailable
+- **AI Fashion Assistant**: Claude-powered chat with structured outfit / color / accessory responses
+- **Image Analysis**: Upload clothing photos for styling advice
+- **DeepFashion catalog**: Local image corpus for recommendations (`server/data/DeepFashion-MultiModal`)
+- **Chat History**: Persisted in PostgreSQL for the local MVP user
+- **Virtual Try-On (demo)**: UI + API; results are explicitly labeled demo until Kolors/production VTO is wired
+- **Fallback**: Rule-based + DeepFashion responses when the Anthropic API is unavailable
 
 ## Technology Stack
 
-### Web Application
 - **Frontend**: React, TypeScript, Tailwind CSS, shadcn/ui
 - **Backend**: Express.js, Node.js
 - **Database**: PostgreSQL with Drizzle ORM
-- **AI**: OpenAI API with local fallback system
-
-### Mobile Application
-- **Framework**: React Native with Expo
-- **UI**: React Native Paper
-- **Navigation**: React Navigation
-- **API**: Shared backend with web application
+- **AI**: Anthropic Claude (`ANTHROPIC_API_KEY`) via `server/services/fashionAi.ts`
+- **Mobile**: Expo subset (chat-focused)
 
 ## Getting Started
 
 ### Prerequisites
-- Node.js (version 18 or later)
-- npm or yarn
-- PostgreSQL database
+
+- Node.js 18+
+- PostgreSQL
+- Anthropic API key
 
 ### Environment Variables
-Create a `.env` file in the root directory with the following variables:
+
+Copy `.env.example` to `.env`:
+
 ```
-DATABASE_URL=postgresql://username:password@localhost:5432/fashion_ai
-OPENAI_API_KEY=your_openai_api_key
+DATABASE_URL=postgresql://username:password@localhost:5432/vesta_ai
+ANTHROPIC_API_KEY=your_anthropic_api_key
+PORT=3000
+# Optional — Python try-on sidecar
+# PYTHON_SERVICE_URL=http://localhost:5001
 ```
 
-### Installation and Running (Web)
+### Install and run (web)
 
-1. Install dependencies:
-   ```
-   npm install
-   ```
+```
+npm install
+npm run dev
+```
 
-2. Start the application:
-   ```
-   npm run dev
-   ```
+App: `http://localhost:3000`
 
-This will start both the backend server and frontend application.
+### DeepFashion images (local only)
 
-### Installation and Running (Mobile)
+Place the DeepFashion-MultiModal `images/` folder and `captions.json` under `server/data/DeepFashion-MultiModal/`. Do not commit that dataset (see `.gitignore`).
 
-1. Navigate to the mobile directory:
-   ```
-   cd client/mobile
-   ```
+### Virtual try-on
 
-2. Install dependencies:
-   ```
-   npm install
-   ```
+See `KOLORS_SETUP.md`. Until configured, the UI shows **demo mode** labeling.
 
-3. Update the API URL in `src/lib/api.js` with your server's IP address
+### Mobile
 
-4. Start the Expo development server:
-   ```
-   npm start
-   ```
+```
+cd client/mobile
+npm install
+npm start
+```
 
-5. Use the Expo Go app on your device to scan the QR code, or run in an emulator/simulator
+Update the API URL in `src/lib/api.js` for your machine.
 
-## Development Notes
+## Cursor agent roles
 
-- The web application communicates with the backend through RESTful API endpoints
-- The mobile application uses the same API endpoints but requires the correct IP address to be configured
-- Both applications use shared data models defined in `shared/schema.ts`
-- Chat history is persisted in the database and available across platforms
+Project rules live in `.cursor/rules/` (`orchestrator`, `analyst`, `developer`, `debugger`). Mention them with `@` when working a milestone.
+
+## Milestone 0 cleanup
+
+See [docs/MILESTONE_0_NOTES.md](docs/MILESTONE_0_NOTES.md) for what was fixed and removed.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## PostgreSQL
-To start postgresql@15 now and restart at login:
-  brew services start postgresql@15
-Or, if you don't want/need a background service you can just run:
-  LC_ALL="C" /opt/homebrew/opt/postgresql@15/bin/postgres -D /opt/homebrew/var/postgresql@15
-==> python@3.10
+MIT

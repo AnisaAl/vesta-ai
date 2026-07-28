@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { messageSchema } from "@shared/schema";
-import { generateFashionResponse } from "./services/openai";
+import { generateFashionResponse } from "./services/fashionAi";
 import { processVirtualTryOn } from "./services/virtualTryOn";
 import { getDeepFashionRecommendations, getDeepFashionOutfits } from "./services/deepFashion";
 
@@ -19,7 +19,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = requestSchema.parse(req.body);
       
-      // Process the message with OpenAI (with or without image)
+      // Process the message with Claude (with or without image)
       const response = await generateFashionResponse(
         validatedData.message, 
         validatedData.history || [],
@@ -41,14 +41,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const requestSchema = z.object({
         messages: z.array(messageSchema),
-        userId: z.number().optional() // Optional for now, would be required in real app with auth
+        userId: z.number().optional()
       });
 
       const validatedData = requestSchema.parse(req.body);
+      const localUser = await storage.ensureLocalUser();
       
-      // Create new chat history in database
       const chatHistory = await storage.createChatHistory({
-        userId: validatedData.userId,
+        userId: localUser.id,
         messages: validatedData.messages
       });
       
@@ -87,7 +87,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Get all chat histories for a user
+  // Get all chat histories for a user (userId 1 = local MVP user)
   app.get('/api/chat/histories/:userId', async (req, res) => {
     try {
       const userId = parseInt(req.params.userId);
@@ -95,8 +95,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isNaN(userId)) {
         return res.status(400).json({ message: 'Invalid user ID' });
       }
-      
-      const chatHistories = await storage.getChatHistoriesByUserId(userId);
+
+      const localUser = await storage.ensureLocalUser();
+      const resolvedId = userId === 1 ? localUser.id : userId;
+      const chatHistories = await storage.getChatHistoriesByUserId(resolvedId);
       
       return res.json(chatHistories);
     } catch (error) {

@@ -40,7 +40,8 @@ const SEASONAL_COLORS: Record<string, FashionColor[]> = {
   ]
 };
 
-// Sample outfits for different categories
+// TEMPORARY: Unsplash sample outfits used only when DeepFashion has no match.
+// Replace with affiliate product catalog (Milestone 1). Do not treat as shoppable inventory.
 const SAMPLE_OUTFITS: Record<string, FashionOutfit[]> = {
   casual: [
     {
