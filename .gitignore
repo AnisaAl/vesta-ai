@@ -9,3 +9,4 @@ venv/
 Kolors/
 server/data/
 *.zip
+uploads/

@@ -8,6 +8,15 @@ import { processVirtualTryOn } from "./services/virtualTryOn";
 import { getDeepFashionRecommendations, getDeepFashionOutfits } from "./services/deepFashion";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check for Docker / load balancers
+  app.get('/api/health', async (_req, res) => {
+    return res.json({
+      status: 'ok',
+      storageMode: process.env.STORAGE_MODE || 'local',
+      pythonServiceConfigured: Boolean(process.env.PYTHON_SERVICE_URL),
+    });
+  });
+
   // Chat endpoint
   app.post('/api/chat', async (req, res) => {
     try {
