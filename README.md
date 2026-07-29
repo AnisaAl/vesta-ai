@@ -14,65 +14,211 @@ Local-first AI fashion companion: chat styling advice, DeepFashion image suggest
 ## Technology Stack
 
 - **Frontend**: React, TypeScript, Tailwind CSS, shadcn/ui
-- **Backend**: Express.js, Node.js
+- **Backend**: Express.js, Node.js (`server/index.ts` serves API + Vite client in one process)
 - **Database**: PostgreSQL with Drizzle ORM
 - **AI**: Anthropic Claude (`ANTHROPIC_API_KEY`) via `server/services/fashionAi.ts`
 - **Mobile**: Expo subset (chat-focused)
 
-## Getting Started
+---
 
-### Prerequisites
+## Quick start (do this in order)
+
+You run **one Node process** for the web app. Postgres (and optionally try-on) run separately.
+
+### 1. Prerequisites
 
 - Node.js 18+
-- PostgreSQL
-- Anthropic API key
+- Docker Desktop (for Postgres) **or** a local PostgreSQL 16
+- An [Anthropic API key](https://console.anthropic.com/)
 
-### Environment Variables
+### 2. Clone and install dependencies
 
-Copy `.env.example` to `.env`:
-
-```
-DATABASE_URL=postgresql://username:password@localhost:5432/vesta_ai
-ANTHROPIC_API_KEY=your_anthropic_api_key
-PORT=3000
-# Optional — Python try-on sidecar
-# PYTHON_SERVICE_URL=http://localhost:5001
-```
-
-### Install and run (web)
-
-```
+```bash
+cd /path/to/vesta-ai   # or FashionMentor
 npm install
+```
+
+### 3. Create `.env` (required before DB or app)
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set at least:
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Postgres connection (Compose default below) |
+| `ANTHROPIC_API_KEY` | Claude chat |
+
+Compose Postgres defaults (use these unless you changed `docker-compose.yml`):
+
+```env
+DATABASE_URL=postgresql://vesta:vesta@localhost:5432/vesta_ai
+ANTHROPIC_API_KEY=sk-ant-...your-key...
+PORT=3000
+STORAGE_MODE=local
+STORAGE_LOCAL_ROOT=./uploads
+```
+
+### 4. Start Postgres first
+
+```bash
+npm run docker:db
+```
+
+This runs `docker compose up -d postgres` and listens on **localhost:5432**.
+
+Wait until healthy (a few seconds). Check with:
+
+```bash
+docker compose ps
+```
+
+### 5. Apply database schema
+
+```bash
+npm run db:push
+```
+
+Uses Drizzle (`drizzle.config.ts` + `shared/schema.ts`) against `DATABASE_URL`.
+
+### 6. Start the app (API + UI together)
+
+```bash
 npm run dev
 ```
 
-App: `http://localhost:3000`
+This starts `server/index.ts` on **http://localhost:3000** (Express API + Vite React UI).
 
-### DeepFashion images (local only)
+**Smoke check:**
 
-Place the DeepFashion-MultiModal `images/` folder and `captions.json` under `server/data/DeepFashion-MultiModal/`. Do not commit that dataset (see `.gitignore`).
-
-### Virtual try-on
-
-See `KOLORS_SETUP.md`. Until configured, the UI shows **demo mode** labeling.
-
-### Mobile
-
+```bash
+curl http://localhost:3000/api/health
 ```
+
+Expected JSON includes `"status":"ok"`. Then open **http://localhost:3000** in the browser (Chat tab).
+
+### 7. Optional — DeepFashion images
+
+For catalog-style outfit images in chat, place data locally (not in git):
+
+```text
+server/data/DeepFashion-MultiModal/captions.json
+server/data/DeepFashion-MultiModal/images/...
+```
+
+Served at `/data/deepfashion/images/...`.
+
+### 8. Optional — virtual try-on sidecar
+
+Only if you want try-on beyond the UI demo label:
+
+```bash
+npm run docker:vto
+```
+
+Then in `.env`:
+
+```env
+PYTHON_SERVICE_URL=http://localhost:8000
+```
+
+Restart `npm run dev`. Try-on UI calls **your** API `POST /api/virtual-try-on`, which proxies to the Python service.
+
+---
+
+## What talks to what
+
+```text
+Browser (localhost:3000)
+    │
+    ├─ UI (Vite/React)
+    └─ fetch /api/*  ──────────────►  Express (server/index.ts + server/routes.ts)
+                                            │
+                                            ├─ DATABASE_URL ──► Postgres :5432
+                                            ├─ ANTHROPIC_API_KEY ──► Claude API
+                                            ├─ STORAGE_MODE=local ──► ./uploads (+ /uploads URL)
+                                            └─ PYTHON_SERVICE_URL? ──► VTO :8000 (optional)
+```
+
+You do **not** start the React app separately for web; `npm run dev` is enough.
+
+---
+
+## API reference (main endpoints)
+
+Base URL: `http://localhost:3000`
+
+| Method | Path | Used by | Notes |
+|--------|------|---------|--------|
+| `GET` | `/api/health` | You / Docker | Liveness; shows storage + VTO config flags |
+| `POST` | `/api/chat` | Chat UI | Body: `{ message, history?, imageData? }` → Claude / local fallback |
+| `POST` | `/api/chat/history` | Chat UI | Saves thread for local MVP user |
+| `GET` | `/api/chat/history/:id` | Chat UI | Load one thread |
+| `GET` | `/api/chat/histories/1` | Sidebar | List histories (`1` = local MVP user) |
+| `PUT` | `/api/chat/history/:id` | Chat UI | Update messages |
+| `GET` | `/api/recommendations?query=&limit=` | Optional clients | DeepFashion outfits |
+| `POST` | `/api/virtual-try-on` | Try-on dialog | Needs `PYTHON_SERVICE_URL` or returns setup error |
+
+Example chat call:
+
+```bash
+curl -s http://localhost:3000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Suggest a casual navy outfit"}'
+```
+
+---
+
+## Other run modes
+
+### Full stack in Docker (API image + Postgres)
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+docker compose --profile full up --build
+```
+
+App: http://localhost:3000 · DB only reachable as `postgres` inside the network (host still uses `localhost:5432` if the postgres service is up).
+
+### Stop containers
+
+```bash
+npm run docker:down
+```
+
+### Mobile (separate process)
+
+```bash
 cd client/mobile
 npm install
 npm start
 ```
 
-Update the API URL in `src/lib/api.js` for your machine.
+Point `src/lib/api.js` at your machine’s LAN IP and port **3000** (the same Express server).
+
+---
+
+## Lift to cloud later
+
+| Concern | Local now | Cloud later |
+|---------|-----------|-------------|
+| Database | Compose `postgres` | Managed Postgres (`DATABASE_URL`) |
+| API | `npm run dev` or Compose `api` | Same Docker image |
+| Uploads | `STORAGE_MODE=local` → `./uploads` | `STORAGE_MODE=s3` (stub in `objectStorage.ts`) |
+| Try-on | Compose profile `vto` | Same image or hosted VTO URL |
+
+See [docs/MILESTONE_0B_NOTES.md](docs/MILESTONE_0B_NOTES.md).
 
 ## Cursor agent roles
 
-Project rules live in `.cursor/rules/` (`orchestrator`, `analyst`, `developer`, `debugger`). Mention them with `@` when working a milestone.
+`.cursor/rules/` — `orchestrator`, `analyst`, `developer`, `debugger`. Mention with `@` when working a milestone.
 
-## Milestone 0 cleanup
+## Milestone notes
 
-See [docs/MILESTONE_0_NOTES.md](docs/MILESTONE_0_NOTES.md) for what was fixed and removed.
+- [Milestone 0 cleanup](docs/MILESTONE_0_NOTES.md)
+- [Milestone 0b Docker / storage](docs/MILESTONE_0B_NOTES.md)
 
 ## License
 
