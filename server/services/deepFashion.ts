@@ -11,12 +11,9 @@ interface DeepFashionItem {
 
 let deepFashionCache: DeepFashionItem[] | null = null;
 
-const DEEPFASHION_ROOT = path.join(
-  process.cwd(),
-  "server",
-  "data",
-  "DeepFashion-MultiModal"
-);
+const DEEPFASHION_ROOT =
+  process.env.DEEPFASHION_ROOT ||
+  path.join(process.cwd(), "server", "data", "DeepFashion-MultiModal");
 const IMAGES_DIR = path.join(DEEPFASHION_ROOT, "images");
 const CAPTIONS_PATH = path.join(DEEPFASHION_ROOT, "captions.json");
 

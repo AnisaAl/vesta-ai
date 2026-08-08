@@ -238,34 +238,27 @@ export async function generateFashionResponse(
   } catch (error: any) {
     console.error("Error generating fashion response:", error);
     
-    // Check if it's a quota/rate-limit error
+    // Quota or any other API failure: still return local DeepFashion-backed outfits
     if (error?.status === 429 || (error?.error?.type === 'insufficient_quota')) {
       console.log("Anthropic API quota exceeded, switching to local data mode");
       useLocalDataFallback = true;
-      
-      // Use local data as fallback
-      const localResponse = generateLocalFashionResponse(userMessage);
-      
-      // Format the response for the front-end
-      let formattedResponse = localResponse.message;
-      
-      // Add JSON data for the frontend to parse only if we have fashion-specific data
-      if (localResponse.colors || localResponse.outfits || localResponse.accessories) {
-        formattedResponse += '\n\n```json\n' + JSON.stringify({
-          colors: localResponse.colors || [],
-          outfits: localResponse.outfits || [],
-          accessories: localResponse.accessories || []
-        }, null, 2) + '\n```';
-      }
-      
-      return {
-        message: formattedResponse,
-        responseType: 'text'
-      };
+    } else {
+      console.log("Anthropic API error, using local DeepFashion fallback for this request");
     }
-    
+
+    const localResponse = generateLocalFashionResponse(userMessage);
+    let formattedResponse = localResponse.message;
+
+    if (localResponse.colors || localResponse.outfits || localResponse.accessories) {
+      formattedResponse += '\n\n```json\n' + JSON.stringify({
+        colors: localResponse.colors || [],
+        outfits: localResponse.outfits || [],
+        accessories: localResponse.accessories || []
+      }, null, 2) + '\n```';
+    }
+
     return {
-      message: "I'm having trouble connecting to my fashion database. I'll use local data to help you instead.",
+      message: formattedResponse,
       responseType: 'text'
     };
   }

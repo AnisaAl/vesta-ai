@@ -11,10 +11,8 @@ app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
 // Serve DeepFashion-MultiModal images as static files
 const deepFashionImagesPath = path.join(
-  process.cwd(),
-  "server",
-  "data",
-  "DeepFashion-MultiModal",
+  process.env.DEEPFASHION_ROOT ||
+    path.join(process.cwd(), "server", "data", "DeepFashion-MultiModal"),
   "images",
 );
 app.use(

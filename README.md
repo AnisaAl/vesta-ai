@@ -34,7 +34,7 @@ You run **one Node process** for the web app. Postgres (and optionally try-on) r
 ### 2. Clone and install dependencies
 
 ```bash
-cd /path/to/vesta-ai   # or FashionMentor
+cd /path/to/FashionMentor   # or FashionMentor
 npm install
 ```
 
@@ -109,6 +109,14 @@ server/data/DeepFashion-MultiModal/images/...
 ```
 
 Served at `/data/deepfashion/images/...`.
+
+**Docker (`--profile full`):** the dataset is **not** copied into the image (see `.dockerignore`). Compose bind-mounts the host folder:
+
+```text
+./server/data/DeepFashion-MultiModal → /app/server/data/DeepFashion-MultiModal
+```
+
+If that host folder is missing, chat/recommendations will have no local images. Host `npm run dev` uses the same path on disk (no Compose mount needed).
 
 ### 8. Optional — virtual try-on sidecar
 
