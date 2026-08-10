@@ -34,6 +34,7 @@ export interface FashionAccessory {
 
 export interface TrendResponse {
   message: string;
+  intent?: string;
   colors?: FashionColor[];
   outfits?: FashionOutfit[];
   accessories?: FashionAccessory[];

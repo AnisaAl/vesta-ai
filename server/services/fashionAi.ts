@@ -1,16 +1,19 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Message } from "@shared/schema";
 import { generateLocalFashionResponse } from "./fashionData";
-import { getDeepFashionOutfits } from "./deepFashion";
+import { searchDeepFashion } from "./deepFashion";
+import {
+  FashionQueryPlan,
+  detectIntentHeuristic,
+  mergeIntentFromModel,
+} from "./fashionIntent";
 
 const anthropic = new Anthropic({ 
   apiKey: process.env.ANTHROPIC_API_KEY || "" 
 });
 
-// Flag to track if we've encountered an API rate limit or quota issue
 let useLocalDataFallback = false;
 
-// Helper function to prepare the chat history for Anthropic
 function prepareConversationHistory(history: Message[]) {
   return history.map(msg => ({
     role: msg.role,
@@ -18,167 +21,263 @@ function prepareConversationHistory(history: Message[]) {
   }));
 }
 
-// Fashion expert system prompt
-const SYSTEM_PROMPT = `You are a fashion expert assistant specialized in trends, styling advice, and outfit recommendations. 
-Your knowledge includes current fashion trends, style principles, color theory, and outfit coordination.
+const SYSTEM_PROMPT = `You are Vesta, a fashion mentor. Help users combine clothes, find similar pieces, choose colors, and refine style.
 
-When responding to user queries about fashion trends, styling advice, or outfit ideas, provide detailed and visually-oriented responses.
+## Intent (required)
+Classify every clothing request into ONE primary intent:
+- combine: user has/uploads a garment and needs complementary pieces (e.g. tee → pants/skirts/shoes)
+- similar: user wants lookalikes of the same garment type
+- color: user asks for palettes / what colors work
+- style: user asks for a vibe/occasion (office, casual, minimal…)
+- general: broad outfit advice without the above
 
-For questions about fashion trends, colors, outfits, or accessories, please format part of your response as JSON inside a code block like this:
+If intents overlap (e.g. combine + color), keep ONE primary intent and put extra color/style hints in the JSON fields below — do not invent a second intent.
+
+## Audience (required)
+Set "audience" so catalog images match who is being dressed:
+- feminine: woman, women, female, feminine, lady, girl, she/her
+- masculine: man, men, male, masculine, gentleman, guy, he/him
+- any: unspecified or explicitly unisex
+
+Never describe or imply men's catalog looks (gentleman, man, guy, his…) when audience is feminine, and the reverse for masculine.
+
+## Response format
+Write a short human explanation, then ONE json code block:
+
 \`\`\`json
 {
-  "colors": [
-    {"name": "Rich Brown", "hexCode": "#5C4033"},
-    {"name": "Camel", "hexCode": "#8A6642"}
-  ],
-  "outfits": [
-    {"id": "outfit1", "name": "Casual Chic", "description": "Burgundy sweater + neutral pants", "imageUrl": "https://images.unsplash.com/photo-1581044777550-4cfa60707c03?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8YnVyZ3VuZHklMjBvdXRmaXR8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=500&q=60"}
-  ],
+  "intent": "combine",
+  "audience": "feminine",
+  "anchorGarment": "top",
+  "targetCategories": ["bottom", "shoes", "bag"],
+  "colors": [{"name": "Navy", "hexCode": "#000080"}],
+  "styleTags": ["casual"],
+  "outfits": [],
   "accessories": [
-    {"id": "acc1", "name": "Cream or Beige Scarf", "description": "Creates elegant contrast with the rich burgundy", "icon": "ri-scarf-line"}
+    {"id": "acc1", "name": "Leather belt", "description": "Defines the waist", "icon": "ri-contrast-drop-line"}
   ],
-  "conclusion": "Remember that burgundy acts almost like a neutral, so you have lots of flexibility."
+  "conclusion": "Short wrap-up."
 }
 \`\`\`
 
-When analyzing fashion images that users upload:
-1. Identify key garments, colors, patterns, and styles present in the image
-2. Suggest complementary items or styling options based on what's in the image
-3. Recommend appropriate occasions or settings for the outfit or item
-4. Offer 2-3 alternative styling ideas using the same core pieces
-5. Include color recommendations that would pair well with the items in the image
+Rules for fields:
+- intent, audience, anchorGarment, targetCategories, styleTags: required for clothing queries (use [] if none).
+- audience one of: feminine, masculine, any
+- anchorGarment one of: top, bottom, dress, shoes, bag, accessory, outerwear, unknown
+- targetCategories: for combine = complementary categories; for similar = [same as anchor]; else []
+- colors: use {name, hexCode} objects when discussing color; else []
+- outfits: ALWAYS leave "outfits" as []. The server injects catalog images (DeepFashion). Never invent Unsplash or other external image URLs.
+- accessories: Remix Icon class names (ri-*) when helpful; else []
 
-Important guidelines:
-1. For color recommendations, include the name and hex code of each color.
-2. For outfit recommendations, include real, accessible image URLs of fashion examples from Unsplash or similar free stock image services.
-3. For accessory recommendations, use Remix Icon class names (ri-*) for icons.
-4. Always include a brief textual explanation before the JSON block and a conclusion after it.
-5. Respond conversationally to small talk while maintaining your fashion expertise persona.
-6. Keep responses concise but informative.
-7. When responding to image uploads, provide tailored advice specific to what appears in the image.
+## Image uploads
+1. Identify the main garment (anchor), colors, style, and likely audience if visible or stated.
+2. Default intent is combine unless the user asks for similar items.
+3. For combine: recommend bottoms/skirts/shoes/bags — not more of the same garment.
+4. For similar: stay on the same garment category.
 
-For non-fashion questions or small talk, respond in a friendly manner while gently steering the conversation back to fashion when appropriate.
+## Tone
+Concise, practical mentoring. Steer non-fashion chat gently back to style.`;
 
-When the user requests recommendations for specific clothing items, colors, or outfit types, ALWAYS include outfit recommendations in the JSON response with imageUrl fields. The outfits array should contain items with id, name, description, and imageUrl fields. Even if you're providing color recommendations, try to also include relevant outfit suggestions to help the user visualize complete looks.`;
+function extractJsonBlock(message: string): { json: any; raw: string } | null {
+  const jsonMatch = message.match(/```json([\s\S]*?)```/);
+  if (!jsonMatch) return null;
+  try {
+    return { json: JSON.parse(jsonMatch[1].trim()), raw: jsonMatch[0] };
+  } catch {
+    return null;
+  }
+}
+
+function planFromAssistantJson(
+  assistantMessage: string,
+  heuristic: FashionQueryPlan
+): FashionQueryPlan {
+  const parsed = extractJsonBlock(assistantMessage);
+  if (!parsed) return heuristic;
+
+  const j = parsed.json;
+  return mergeIntentFromModel(heuristic, {
+    intent: j.intent,
+    audience: j.audience,
+    anchorGarment: j.anchorGarment,
+    targetCategories: Array.isArray(j.targetCategories)
+      ? j.targetCategories
+      : undefined,
+    colors: Array.isArray(j.colors)
+      ? j.colors.map((c: any) =>
+          typeof c === "string" ? c : String(c?.name || "").toLowerCase()
+        ).filter(Boolean)
+      : undefined,
+    styleTags: Array.isArray(j.styleTags) ? j.styleTags : undefined,
+    rationale: "from model json",
+  });
+}
+
+function injectOutfits(
+  assistantMessage: string,
+  plan: FashionQueryPlan,
+  limit = 4
+): string {
+  const outfits = searchDeepFashion(plan, limit);
+  if (outfits.length === 0) {
+    return (
+      assistantMessage +
+      "\n\nI could not find catalog images for that filter yet; try rephrasing (e.g. “similar tops” or “pants to combine”)."
+    );
+  }
+
+  const parsed = extractJsonBlock(assistantMessage);
+  if (parsed) {
+    const next = {
+      ...parsed.json,
+      intent: plan.intent,
+      audience: plan.audience,
+      anchorGarment: plan.anchorGarment,
+      targetCategories: plan.targetCategories,
+      styleTags: plan.styleTags,
+      outfits,
+    };
+    // Preserve color objects from model when present
+    if (!Array.isArray(next.colors)) next.colors = [];
+    return assistantMessage.replace(
+      /```json[\s\S]*?```/,
+      `\`\`\`json\n${JSON.stringify(next, null, 2)}\n\`\`\``
+    );
+  }
+
+  return (
+    assistantMessage +
+    `\n\n\`\`\`json\n${JSON.stringify(
+      {
+        intent: plan.intent,
+        audience: plan.audience,
+        anchorGarment: plan.anchorGarment,
+        targetCategories: plan.targetCategories,
+        colors: [],
+        styleTags: plan.styleTags,
+        outfits,
+        accessories: [],
+        conclusion: "",
+      },
+      null,
+      2
+    )}\n\`\`\``
+  );
+}
+
+function shouldAttachCatalog(plan: FashionQueryPlan, userMessage: string): boolean {
+  if (["combine", "similar", "color", "style", "general"].includes(plan.intent)) {
+    if (plan.intent === "general") {
+      return /\b(outfit|clothes|clothing|wear|recommend|shirt|dress|pants|skirt|style)\b/i.test(
+        userMessage
+      );
+    }
+    return true;
+  }
+  return false;
+}
 
 /**
  * Generate fashion response using Anthropic Claude, optionally with image analysis
- * @param userMessage User's text message
- * @param history Previous conversation history
- * @param imageData Optional base64 encoded image data
- * @returns Response with assistant message
  */
 export async function generateFashionResponse(
   userMessage: string, 
   history: Message[] = [], 
   imageData?: string
 ) {
-  // If we've encountered quota issues before, use local data immediately
+  const hasImage = Boolean(imageData);
+  const heuristic = detectIntentHeuristic(userMessage, hasImage);
+
   if (useLocalDataFallback) {
-    const localResponse = generateLocalFashionResponse(userMessage);
-    
-    // Format the response for the front-end
+    const localResponse = generateLocalFashionResponse(userMessage, hasImage);
     let formattedResponse = localResponse.message;
-    
-    // Add JSON data for the frontend to parse only if we have fashion-specific data
     if (localResponse.colors || localResponse.outfits || localResponse.accessories) {
       formattedResponse += '\n\n```json\n' + JSON.stringify({
+        intent: localResponse.intent || heuristic.intent,
+        audience: heuristic.audience,
+        anchorGarment: heuristic.anchorGarment,
+        targetCategories: heuristic.targetCategories,
         colors: localResponse.colors || [],
+        styleTags: heuristic.styleTags,
         outfits: localResponse.outfits || [],
         accessories: localResponse.accessories || []
       }, null, 2) + '\n```';
     }
-    
-    return {
-      message: formattedResponse,
-      responseType: 'text'
-    };
+    return { message: formattedResponse, responseType: 'text' };
   }
   
   try {
-    // Convert history to Anthropic format
     const conversationHistory = prepareConversationHistory(history);
-    
-    // Create the messages array
-    let messages: any[] = [
-      ...conversationHistory
-    ];
+    let messages: any[] = [...conversationHistory];
 
-    // If image is provided, add it to the messages with appropriate prompt
     if (imageData) {
-      // Extract the base64 data and media type from the data URL format if needed
       let base64Data: string;
       let mediaType: string = "image/jpeg";
       
       if (imageData.includes('base64,')) {
-        // Data URL format: data:image/jpeg;base64,<data>
         const parts = imageData.split(',');
         const header = parts[0];
         base64Data = parts[1];
-        
-        // Extract media type from header
         const mediaTypeMatch = header.match(/data:([^;]+)/);
-        if (mediaTypeMatch) {
-          mediaType = mediaTypeMatch[1];
-        }
+        if (mediaTypeMatch) mediaType = mediaTypeMatch[1];
       } else {
-        // Just base64 data, assume JPEG
         base64Data = imageData;
       }
-      
-      // Add the user message with image (Anthropic format)
+
+      const uploadHint =
+        heuristic.intent === "similar"
+          ? "User wants SIMILAR items to this garment."
+          : "User wants pieces to COMBINE with this garment (complementary categories).";
+
       messages.push({
         role: "user",
         content: [
           {
             type: "text",
-            text: userMessage || "Please analyze this fashion item and provide styling advice."
+            text:
+              (userMessage ||
+                "Please analyze this fashion item and provide styling advice.") +
+              `\n\n(${uploadHint})`,
           },
           {
             type: "image",
             source: {
               type: "base64",
               media_type: mediaType,
-              data: base64Data
-            }
-          }
-        ]
+              data: base64Data,
+            },
+          },
+        ],
       });
     } else {
-      // Add text-only user message
       messages.push({ role: "user", content: userMessage });
     }
 
-    // Call Anthropic API with multimodal capability
-    // Try models in order of preference (newest to oldest)
     const models = [
-      "claude-3-5-sonnet-20241022", // Latest and most capable
-      "claude-3-sonnet-20240229",   // Fallback option
-      "claude-3-haiku-20240307"     // Fastest, most cost-effective
+      "claude-3-5-sonnet-20241022",
+      "claude-3-sonnet-20240229",
+      "claude-3-haiku-20240307",
     ];
     
     let response;
     let lastError;
     
-    // Try each model until one works
     for (const model of models) {
       try {
         response = await anthropic.messages.create({
           model: model,
           system: SYSTEM_PROMPT,
           messages: messages,
-          temperature: 0.7,
-          max_tokens: 1000,
+          temperature: 0.5,
+          max_tokens: 1200,
         });
-        break; // Success, exit loop
+        break;
       } catch (error: any) {
         lastError = error;
-        // If it's a 404 (model not found), try next model
         if (error?.status === 404 && models.indexOf(model) < models.length - 1) {
           console.log(`Model ${model} not available, trying next model...`);
           continue;
         }
-        // For other errors or if it's the last model, throw
         throw error;
       }
     }
@@ -187,79 +286,63 @@ export async function generateFashionResponse(
       throw lastError || new Error("Failed to get response from any model");
     }
 
-    let assistantMessage = response.content[0].type === 'text' ? response.content[0].text : "I'm sorry, I couldn't generate a response.";
+    let assistantMessage =
+      response.content[0].type === "text"
+        ? response.content[0].text
+        : "I'm sorry, I couldn't generate a response.";
 
-    // Enhance response with DeepFashion-MultiModal items if the query is about clothing/outfits
-    // and the response doesn't already include outfit recommendations
-    const lowerMessage = userMessage.toLowerCase();
-    const isClothingQuery = lowerMessage.includes('shirt') || lowerMessage.includes('dress') || 
-                            lowerMessage.includes('pants') || lowerMessage.includes('trouser') ||
-                            lowerMessage.includes('coat') || lowerMessage.includes('sweater') ||
-                            lowerMessage.includes('pullover') || lowerMessage.includes('sneaker') ||
-                            lowerMessage.includes('boot') || lowerMessage.includes('sandal') ||
-                            lowerMessage.includes('bag') || lowerMessage.includes('outfit') ||
-                            lowerMessage.includes('clothes') || lowerMessage.includes('clothing') ||
-                            lowerMessage.includes('wear') || lowerMessage.includes('recommendation');
-    
-    if (isClothingQuery) {
-      // Try to get DeepFashion items and append to response
+    const plan = planFromAssistantJson(assistantMessage, heuristic);
+
+    if (shouldAttachCatalog(plan, userMessage) || hasImage) {
       try {
-        const deepFashionOutfits = getDeepFashionOutfits(lowerMessage, 4);
-        if (deepFashionOutfits.length > 0) {
-          // Extract existing JSON if any, or create new structure
-          const jsonMatch = assistantMessage.match(/```json([\s\S]*?)```/);
-          if (jsonMatch) {
-            // Update existing JSON
-            try {
-              const existingJson = JSON.parse(jsonMatch[1].trim());
-              existingJson.outfits = deepFashionOutfits;
-              assistantMessage = assistantMessage.replace(
-                /```json[\s\S]*?```/,
-                `\`\`\`json\n${JSON.stringify(existingJson, null, 2)}\n\`\`\``
-              );
-            } catch (e) {
-              // If parsing fails, append new JSON
-              assistantMessage += `\n\n\`\`\`json\n${JSON.stringify({ outfits: deepFashionOutfits }, null, 2)}\n\`\`\``;
-            }
-          } else {
-            // Append new JSON block
-            assistantMessage += `\n\n\`\`\`json\n${JSON.stringify({ outfits: deepFashionOutfits }, null, 2)}\n\`\`\``;
-          }
-        }
+        assistantMessage = injectOutfits(assistantMessage, plan, 4);
       } catch (error) {
-        console.error('Error adding DeepFashion items to response:', error);
+        console.error("Error adding DeepFashion items to response:", error);
       }
     }
 
     return {
       message: assistantMessage,
-      responseType: 'text'
+      responseType: "text",
     };
   } catch (error: any) {
     console.error("Error generating fashion response:", error);
     
-    // Quota or any other API failure: still return local DeepFashion-backed outfits
-    if (error?.status === 429 || (error?.error?.type === 'insufficient_quota')) {
+    if (error?.status === 429 || error?.error?.type === "insufficient_quota") {
       console.log("Anthropic API quota exceeded, switching to local data mode");
       useLocalDataFallback = true;
     } else {
-      console.log("Anthropic API error, using local DeepFashion fallback for this request");
+      console.log(
+        "Anthropic API error, using local DeepFashion fallback for this request"
+      );
     }
 
-    const localResponse = generateLocalFashionResponse(userMessage);
+    const localResponse = generateLocalFashionResponse(userMessage, hasImage);
     let formattedResponse = localResponse.message;
 
     if (localResponse.colors || localResponse.outfits || localResponse.accessories) {
-      formattedResponse += '\n\n```json\n' + JSON.stringify({
-        colors: localResponse.colors || [],
-        outfits: localResponse.outfits || [],
-        accessories: localResponse.accessories || []
-      }, null, 2) + '\n```';
+      formattedResponse +=
+        "\n\n```json\n" +
+        JSON.stringify(
+          {
+            intent: localResponse.intent || heuristic.intent,
+            audience: heuristic.audience,
+            anchorGarment: heuristic.anchorGarment,
+            targetCategories: heuristic.targetCategories,
+            colors: localResponse.colors || [],
+            styleTags: heuristic.styleTags,
+            outfits: localResponse.outfits || [],
+            accessories: localResponse.accessories || [],
+          },
+          null,
+          2
+        ) +
+        "\n```";
     }
 
     return {
       message: formattedResponse,
-      responseType: 'text'
+      responseType: "text",
     };
   }
 }
