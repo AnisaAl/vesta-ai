@@ -36,10 +36,13 @@ services:
       STORAGE_LOCAL_ROOT: /app/uploads
       # Only set when the vto profile is running; empty avoids failed try-on calls
       PYTHON_SERVICE_URL: ${PYTHON_SERVICE_URL:-}
+      # Must match the bind mount below (dataset is dockerignored, not baked into the image)
+      DEEPFASHION_ROOT: /app/server/data/DeepFashion-MultiModal
     volumes:
       - vesta_uploads:/app/uploads
-      # Optional: mount DeepFashion dataset read-only for recommendations
-      - ./server/data:/app/server/data:ro
+      # Required for outfit images in chat/recommendations when using --profile full.
+      # Host path: ./server/data/DeepFashion-MultiModal (images/ + captions.json)
+      - ./server/data/DeepFashion-MultiModal:/app/server/data/DeepFashion-MultiModal:ro
     depends_on:
       postgres:
         condition: service_healthy
