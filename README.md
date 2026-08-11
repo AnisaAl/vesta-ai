@@ -1,12 +1,13 @@
 # Vesta AI (Fashion Companion)
 
-Local-first AI fashion companion: chat styling advice, DeepFashion image suggestions, wardrobe/trends tabs, and demo virtual try-on. Shoppable affiliate catalog is planned next — **online-only, no owned inventory**.
+Local-first AI fashion companion: chat styling advice, DeepFashion image suggestions, affiliate product catalog (browse), wardrobe/trends tabs, and demo virtual try-on. **Online-only commerce** — no owned inventory; cart/checkout handoff is next.
 
 ## Features
 
 - **AI Fashion Assistant**: Claude-powered chat with structured outfit / color / accessory responses
 - **Image Analysis**: Upload clothing photos for styling advice
 - **DeepFashion catalog**: Local image corpus for recommendations (`server/data/DeepFashion-MultiModal`)
+- **Affiliate products**: Postgres `products` + `GET /api/catalog`; chat prefers affiliate rows when seeded
 - **Chat History**: Persisted in PostgreSQL for the local MVP user
 - **Virtual Try-On (demo)**: UI + API; results are explicitly labeled demo until Kolors/production VTO is wired
 - **Fallback**: Rule-based + DeepFashion responses when the Anthropic API is unavailable
@@ -83,7 +84,15 @@ npm run db:push
 
 Uses Drizzle (`drizzle.config.ts` + `shared/schema.ts`) against `DATABASE_URL`.
 
-### 6. Start the app (API + UI together)
+### 6. Seed affiliate demo catalog (optional but recommended)
+
+```bash
+npm run catalog:ingest
+```
+
+Loads `server/fixtures/affiliate-products.json` into `products` (idempotent upsert). Override path with `AFFILIATE_FEED_PATH`. See [docs/MILESTONE_2_NOTES.md](docs/MILESTONE_2_NOTES.md).
+
+### 7. Start the app (API + UI together)
 
 ```bash
 npm run dev
@@ -95,11 +104,12 @@ This starts `server/index.ts` on **http://localhost:3000** (Express API + Vite R
 
 ```bash
 curl http://localhost:3000/api/health
+curl "http://localhost:3000/api/catalog?audience=feminine&limit=5"
 ```
 
-Expected JSON includes `"status":"ok"`. Then open **http://localhost:3000** in the browser (Chat tab).
+Expected health JSON includes `"status":"ok"`. Then open **http://localhost:3000** in the browser (Chat tab).
 
-### 7. Optional — DeepFashion images
+### 8. Optional — DeepFashion images
 
 For catalog-style outfit images in chat, place data locally (not in git):
 
@@ -223,10 +233,16 @@ See [docs/MILESTONE_0B_NOTES.md](docs/MILESTONE_0B_NOTES.md).
 
 `.cursor/rules/` — `orchestrator`, `analyst`, `developer`, `debugger`. Mention with `@` when working a milestone.
 
-## Milestone notes
+## Documentation
+
+- [Feature list](docs/FEATURES.md) — everything implemented so far, plus demo feed contents
+
+### Milestone notes
 
 - [Milestone 0 cleanup](docs/MILESTONE_0_NOTES.md)
 - [Milestone 0b Docker / storage](docs/MILESTONE_0B_NOTES.md)
+- [Milestone 1 prompt / intent retrieval](docs/MILESTONE_1_NOTES.md)
+- [Milestone 2 affiliate catalog](docs/MILESTONE_2_NOTES.md)
 
 ## License
 

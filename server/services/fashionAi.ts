@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Message } from "@shared/schema";
 import { generateLocalFashionResponse } from "./fashionData";
 import { searchDeepFashion } from "./deepFashion";
+import { resolveOutfitSuggestions } from "./catalog";
 import {
   FashionQueryPlan,
   detectIntentHeuristic,
@@ -66,7 +67,7 @@ Rules for fields:
 - anchorGarment one of: top, bottom, dress, shoes, bag, accessory, outerwear, unknown
 - targetCategories: for combine = complementary categories; for similar = [same as anchor]; else []
 - colors: use {name, hexCode} objects when discussing color; else []
-- outfits: ALWAYS leave "outfits" as []. The server injects catalog images (DeepFashion). Never invent Unsplash or other external image URLs.
+- outfits: ALWAYS leave "outfits" as []. The server injects shoppable affiliate products when available, else DeepFashion imagery. Never invent Unsplash or other external image URLs.
 - accessories: Remix Icon class names (ri-*) when helpful; else []
 
 ## Image uploads
@@ -113,16 +114,20 @@ function planFromAssistantJson(
   });
 }
 
-function injectOutfits(
+async function injectOutfits(
   assistantMessage: string,
   plan: FashionQueryPlan,
   limit = 4
-): string {
-  const outfits = searchDeepFashion(plan, limit);
+): Promise<string> {
+  const { outfits, source } = await resolveOutfitSuggestions(
+    plan,
+    limit,
+    searchDeepFashion
+  );
   if (outfits.length === 0) {
     return (
       assistantMessage +
-      "\n\nI could not find catalog images for that filter yet; try rephrasing (e.g. “similar tops” or “pants to combine”)."
+      "\n\nI could not find catalog or DeepFashion images for that filter yet; try rephrasing (e.g. “similar tops” or “pants to combine”)."
     );
   }
 
@@ -135,9 +140,9 @@ function injectOutfits(
       anchorGarment: plan.anchorGarment,
       targetCategories: plan.targetCategories,
       styleTags: plan.styleTags,
+      catalogSource: source,
       outfits,
     };
-    // Preserve color objects from model when present
     if (!Array.isArray(next.colors)) next.colors = [];
     return assistantMessage.replace(
       /```json[\s\S]*?```/,
@@ -155,6 +160,7 @@ function injectOutfits(
         targetCategories: plan.targetCategories,
         colors: [],
         styleTags: plan.styleTags,
+        catalogSource: source,
         outfits,
         accessories: [],
         conclusion: "",
@@ -189,7 +195,7 @@ export async function generateFashionResponse(
   const heuristic = detectIntentHeuristic(userMessage, hasImage);
 
   if (useLocalDataFallback) {
-    const localResponse = generateLocalFashionResponse(userMessage, hasImage);
+    const localResponse = await generateLocalFashionResponse(userMessage, hasImage);
     let formattedResponse = localResponse.message;
     if (localResponse.colors || localResponse.outfits || localResponse.accessories) {
       formattedResponse += '\n\n```json\n' + JSON.stringify({
@@ -295,7 +301,7 @@ export async function generateFashionResponse(
 
     if (shouldAttachCatalog(plan, userMessage) || hasImage) {
       try {
-        assistantMessage = injectOutfits(assistantMessage, plan, 4);
+        assistantMessage = await injectOutfits(assistantMessage, plan, 4);
       } catch (error) {
         console.error("Error adding DeepFashion items to response:", error);
       }
@@ -317,7 +323,7 @@ export async function generateFashionResponse(
       );
     }
 
-    const localResponse = generateLocalFashionResponse(userMessage, hasImage);
+    const localResponse = await generateLocalFashionResponse(userMessage, hasImage);
     let formattedResponse = localResponse.message;
 
     if (localResponse.colors || localResponse.outfits || localResponse.accessories) {

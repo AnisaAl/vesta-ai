@@ -7,6 +7,7 @@ import {
   FashionAccessory 
 } from '../../client/src/lib/types';
 import { searchDeepFashion } from './deepFashion';
+import { resolveOutfitSuggestions } from './catalog';
 import { detectIntentHeuristic } from './fashionIntent';
 
 // Fashion color palettes for different seasons
@@ -201,10 +202,10 @@ const FASHION_FAQ: Record<string, string> = {
 /**
  * Generate a fashion response based on a query without using external API
  */
-export function generateLocalFashionResponse(
+export async function generateLocalFashionResponse(
   query: string,
   hasImage: boolean = false
-): TrendResponse {
+): Promise<TrendResponse> {
   const lowerQuery = query.toLowerCase().trim();
   const plan = detectIntentHeuristic(query, hasImage);
   
@@ -290,23 +291,27 @@ export function generateLocalFashionResponse(
   
   // Prepare response
   const response: TrendResponse = {
-    message: `Here are some fashion recommendations based on our DeepFashion-MultiModal dataset:`,
+    message: `Here are some fashion recommendations:`,
     intent: plan.intent,
   };
 
-  const catalogOutfits = () => {
-    const found = searchDeepFashion(plan, 4);
-    return found.length > 0 ? found : getOutfitRecommendations(outfitType);
+  const catalogOutfits = async () => {
+    const { outfits } = await resolveOutfitSuggestions(plan, 4, searchDeepFashion);
+    if (outfits.length > 0) return outfits;
+    return getOutfitRecommendations(outfitType).map((o) => ({
+      ...o,
+      source: "sample" as const,
+    }));
   };
   
   if (plan.intent === 'color' || isColorQuery) {
     response.colors = getSeasonalColors(season);
     response.message += ` The trending colors for ${season} include ${response.colors.map((c: FashionColor) => c.name).join(', ')}.`;
-    response.outfits = catalogOutfits();
+    response.outfits = await catalogOutfits();
   }
   
   if (plan.intent === 'combine' || plan.intent === 'similar' || isOutfitQuery) {
-    response.outfits = catalogOutfits();
+    response.outfits = await catalogOutfits();
     response.message +=
       plan.intent === 'combine'
         ? ` Here are complementary pieces to combine with your ${plan.anchorGarment}:`
@@ -316,7 +321,7 @@ export function generateLocalFashionResponse(
   }
   
   if (plan.intent === 'style') {
-    response.outfits = catalogOutfits();
+    response.outfits = await catalogOutfits();
     response.colors = getSeasonalColors(season);
     response.message += ` Style direction (${plan.styleTags.join(', ') || outfitType}):`;
   }
@@ -331,7 +336,7 @@ export function generateLocalFashionResponse(
       // For "trend" related queries without specific color mentions
       if (lowerQuery.includes('trend') || lowerQuery.includes('popular') || lowerQuery.includes('recommendation') || plan.intent === 'general') {
         response.colors = getSeasonalColors(season);
-        response.outfits = catalogOutfits();
+        response.outfits = await catalogOutfits();
         response.accessories = getAccessoryRecommendations().slice(0, 3);
         
         response.message = `Here are the trending fashion items for ${season}: 
@@ -348,7 +353,7 @@ export function generateLocalFashionResponse(
       // Always provide some fashion advice for queries that seem remotely fashion-related
       if (isFashionRelated || lowerQuery.length > 5) {
         response.colors = getSeasonalColors(season);
-        response.outfits = catalogOutfits();
+        response.outfits = await catalogOutfits();
         response.accessories = getAccessoryRecommendations().slice(0, 2);
         response.message = `Here's a fashion suggestion for you: Try wearing colors like ${response.colors.slice(0, 2).map((c: FashionColor) => c.name).join(' or ')} with ${response.outfits[0].description.toLowerCase()}. Add ${response.accessories[0].name.toLowerCase()} to complete the look.`;
       } else {
