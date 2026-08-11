@@ -211,6 +211,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * Affiliate product catalog (online-only). Filters: audience, category, color, style, search.
+   * Cart / checkout handoff is Milestone 3 — this returns shoppable affiliateUrl only.
+   */
+  app.get('/api/catalog', async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit || '24'), 10) || 24, 100);
+      const offset = Math.max(parseInt(String(req.query.offset || '0'), 10) || 0, 0);
+      const audience = typeof req.query.audience === 'string' ? req.query.audience : undefined;
+      const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+      const color = typeof req.query.color === 'string' ? req.query.color : undefined;
+      const style = typeof req.query.style === 'string' ? req.query.style : undefined;
+      const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+      // alias gender → audience
+      const gender = typeof req.query.gender === 'string' ? req.query.gender : undefined;
+      const resolvedAudience = audience || gender;
+
+      const query = {
+        audience: resolvedAudience,
+        category,
+        color,
+        style,
+        search,
+        limit,
+        offset,
+        activeOnly: true,
+      };
+
+      const [items, total] = await Promise.all([
+        storage.listProducts(query),
+        storage.countProducts(query),
+      ]);
+
+      return res.json({
+        success: true,
+        total,
+        limit,
+        offset,
+        products: items.map((p) => ({
+          id: p.id,
+          externalId: p.externalId,
+          merchant: p.merchant,
+          title: p.title,
+          description: p.description,
+          imageUrl: p.imageUrl,
+          affiliateUrl: p.affiliateUrl,
+          priceCents: p.priceCents,
+          currency: p.currency,
+          category: p.category,
+          audience: p.audience,
+          colors: p.colors,
+          styleTags: p.styleTags,
+        })),
+      });
+    } catch (error) {
+      console.error('Error listing catalog:', error);
+      return res.status(500).json({
+        message: error instanceof Error ? error.message : 'Error listing catalog',
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
