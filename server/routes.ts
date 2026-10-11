@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { messageSchema } from "@shared/schema";
 import { generateFashionResponse } from "./services/fashionAi";
-import { processVirtualTryOn } from "./services/virtualTryOn";
+import { processVirtualTryOn, resolveVtoProvider, hostedVtoConfigured } from "./services/virtualTryOn";
 import { getDeepFashionRecommendations, getDeepFashionOutfits } from "./services/deepFashion";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -14,6 +14,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       status: 'ok',
       storageMode: process.env.STORAGE_MODE || 'local',
       pythonServiceConfigured: Boolean(process.env.PYTHON_SERVICE_URL),
+      vtoProvider: resolveVtoProvider(),
+      vtoHostedConfigured: hostedVtoConfigured(),
     });
   });
 

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Upload, Loader2, X } from 'lucide-react';
@@ -10,24 +10,43 @@ interface VirtualTryOnProps {
   productName: string;
 }
 
+type VtoMode = 'overlay' | 'hosted' | 'python';
+
 export default function VirtualTryOn({ open, onOpenChange, productImageUrl, productName }: VirtualTryOnProps) {
   const [userPhoto, setUserPhoto] = useState<string | null>(null);
   const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
+  const [resultMode, setResultMode] = useState<VtoMode | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [provider, setProvider] = useState<VtoMode>('overlay');
+  const [hostedConfigured, setHostedConfigured] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isLive = provider === 'hosted' && hostedConfigured;
+
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.vtoProvider === 'hosted' || data.vtoProvider === 'python' || data.vtoProvider === 'overlay') {
+          setProvider(data.vtoProvider);
+        }
+        setHostedConfigured(Boolean(data.vtoHostedConfigured));
+      })
+      .catch(() => {
+        setProvider('overlay');
+      });
+  }, [open]);
 
   const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Validate file type
       if (!file.type.startsWith('image/')) {
         setError('Please upload an image file');
         return;
       }
-      
-      // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         setError('Image size should be less than 10MB');
         return;
@@ -35,8 +54,7 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
 
       setError(null);
       setUserPhotoFile(file);
-      
-      // Create preview
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setUserPhoto(reader.result as string);
@@ -54,9 +72,9 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
     setIsProcessing(true);
     setError(null);
     setResultImage(null);
+    setResultMode(null);
 
     try {
-      // Convert user photo to base64
       const userPhotoBase64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -67,43 +85,33 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
         reader.readAsDataURL(userPhotoFile);
       });
 
-      // Convert product image to base64 if it's a URL (http/https or relative)
       let productImageBase64 = productImageUrl;
-      
-      // Check if it's a URL (absolute or relative) that needs to be fetched
-      if (productImageUrl.startsWith('http://') || productImageUrl.startsWith('https://') || 
+
+      if (productImageUrl.startsWith('http://') || productImageUrl.startsWith('https://') ||
           productImageUrl.startsWith('/')) {
-        try {
-          // For relative URLs, use the current origin
-          const imageUrl = productImageUrl.startsWith('/') 
-            ? `${window.location.origin}${productImageUrl}`
-            : productImageUrl;
-            
-          const response = await fetch(imageUrl);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch product image: ${response.statusText}`);
-          }
-          
-          const blob = await response.blob();
-          productImageBase64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64String = (reader.result as string).split(',')[1];
-              resolve(base64String);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        } catch (err) {
-          console.error('Error fetching product image:', err);
-          throw new Error(`Failed to load product image: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        const imageUrl = productImageUrl.startsWith('/')
+          ? `${window.location.origin}${productImageUrl}`
+          : productImageUrl;
+
+        const imgResponse = await fetch(imageUrl);
+        if (!imgResponse.ok) {
+          throw new Error(`Could not load the garment image (${imgResponse.status}). Try another look.`);
         }
+
+        const blob = await imgResponse.blob();
+        productImageBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64String = (reader.result as string).split(',')[1];
+            resolve(base64String);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
       } else if (productImageUrl.startsWith('data:')) {
-        // Already a data URL, extract base64 part
         productImageBase64 = productImageUrl.split(',')[1];
       }
 
-      // Call the virtual try-on API
       const response = await fetch('/api/virtual-try-on', {
         method: 'POST',
         headers: {
@@ -116,15 +124,17 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
         }),
       });
 
+      const data = await response.json().catch(() => ({ message: 'Failed to process virtual try-on' }));
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to process virtual try-on' }));
-        throw new Error(errorData.message || 'Failed to process virtual try-on');
+        throw new Error(data.message || 'Failed to process virtual try-on');
       }
 
-      const data = await response.json();
-      
       if (data.resultImage) {
         setResultImage(`data:image/png;base64,${data.resultImage}`);
+        if (data.mode === 'hosted' || data.mode === 'python' || data.mode === 'overlay') {
+          setResultMode(data.mode);
+        }
       } else {
         throw new Error('No result image received');
       }
@@ -140,6 +150,7 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
     setUserPhoto(null);
     setUserPhotoFile(null);
     setResultImage(null);
+    setResultMode(null);
     setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -151,41 +162,48 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
     onOpenChange(false);
   };
 
+  const liveNow = resultMode === 'hosted' || (isLive && !resultMode);
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Virtual Try-On</DialogTitle>
+          <DialogTitle>{liveNow ? 'Live try-on' : 'Virtual Try-On (Demo)'}</DialogTitle>
           <DialogDescription>
-            Demo preview — not production Kolors quality yet. Upload a photo to see a
-            approximate composite of how {productName} might look on you.
+            {liveNow
+              ? `Generate a garment-on-person preview of ${productName}. Your photo is sent to the hosted try-on provider.`
+              : `Demo overlay — not a production fit. Upload a photo to see an approximate composite of ${productName}.`}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 mb-2">
-          Demo mode: results may be a simple overlay until a real try-on model is wired.
-        </div>
+        {liveNow ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 mb-2">
+            Live try-on: the photo is processed by a third-party model (Replicate). Do not upload photos you do not want sent off this machine.
+          </div>
+        ) : (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 mb-2">
+            Demo mode: simple overlay. Set VTO_PROVIDER=hosted and REPLICATE_API_TOKEN for Live garment-on-person results.
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 my-4">
-          {/* Product Image */}
           <div className="flex flex-col items-center">
             <h3 className="text-sm font-semibold mb-2">Product</h3>
             <div className="w-full aspect-square border rounded-lg overflow-hidden bg-gray-100">
-              <img 
-                src={productImageUrl} 
+              <img
+                src={productImageUrl}
                 alt={productName}
                 className="w-full h-full object-cover"
               />
             </div>
           </div>
 
-          {/* User Photo Upload */}
           <div className="flex flex-col items-center">
             <h3 className="text-sm font-semibold mb-2">Your Photo</h3>
             {userPhoto ? (
               <div className="relative w-full aspect-square border rounded-lg overflow-hidden bg-gray-100">
-                <img 
-                  src={userPhoto} 
+                <img
+                  src={userPhoto}
                   alt="Your photo"
                   className="w-full h-full object-cover"
                 />
@@ -220,7 +238,6 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
             )}
           </div>
 
-          {/* Result Preview */}
           <div className="flex flex-col items-center">
             <h3 className="text-sm font-semibold mb-2">Result</h3>
             <div className="w-full aspect-square border rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
@@ -230,8 +247,8 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
                   <span className="text-sm text-gray-600">Processing...</span>
                 </div>
               ) : resultImage ? (
-                <img 
-                  src={resultImage} 
+                <img
+                  src={resultImage}
                   alt="Virtual try-on result"
                   className="w-full h-full object-cover"
                 />
@@ -246,11 +263,8 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
-            <p className="font-semibold mb-2">Virtual Try-On Setup Required</p>
+            <p className="font-semibold mb-2">Try-on could not finish</p>
             <p className="whitespace-pre-line">{error}</p>
-            <p className="mt-3 text-xs text-red-600">
-              💡 Tip: See KOLORS_SETUP.md in the project root for detailed setup instructions.
-            </p>
           </div>
         )}
 
@@ -258,8 +272,8 @@ export default function VirtualTryOn({ open, onOpenChange, productImageUrl, prod
           <Button variant="outline" onClick={handleClose}>
             Close
           </Button>
-          <Button 
-            onClick={handleTryOn} 
+          <Button
+            onClick={handleTryOn}
             disabled={!userPhoto || isProcessing}
             className="min-w-[120px]"
           >

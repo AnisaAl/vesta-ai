@@ -1,6 +1,6 @@
 # Vesta AI (Fashion Companion)
 
-Local-first AI fashion companion: chat styling advice, DeepFashion image suggestions, affiliate product catalog (browse), wardrobe/trends tabs, and demo virtual try-on. **Online-only commerce** — no owned inventory; cart/checkout handoff is next.
+Local-first AI fashion companion: chat styling advice, DeepFashion image suggestions, affiliate catalog, in-app cart, and virtual try-on (Demo overlay by default; Live when hosted). **Online-only commerce** — no owned inventory.
 
 ## Features
 
@@ -9,7 +9,7 @@ Local-first AI fashion companion: chat styling advice, DeepFashion image suggest
 - **DeepFashion catalog**: Local image corpus for recommendations (`server/data/DeepFashion-MultiModal`)
 - **Affiliate products**: Postgres `products` + `GET /api/catalog`; chat prefers affiliate rows when seeded
 - **Chat History**: Persisted in PostgreSQL for the local MVP user
-- **Virtual Try-On (demo)**: UI + API; results are explicitly labeled demo until Kolors/production VTO is wired
+- **Virtual Try-On**: Demo overlay with no extra setup; Live garment-on-person when `VTO_PROVIDER=hosted` + `REPLICATE_API_TOKEN`
 - **Fallback**: Rule-based + DeepFashion responses when the Anthropic API is unavailable
 
 ## Technology Stack
@@ -128,21 +128,18 @@ Served at `/data/deepfashion/images/...`.
 
 If that host folder is missing, chat/recommendations will have no local images. Host `npm run dev` uses the same path on disk (no Compose mount needed).
 
-### 8. Optional — virtual try-on sidecar
+### 8. Virtual try-on
 
-Only if you want try-on beyond the UI demo label:
+Default is a **Demo overlay** in Node — no Python, no tokens. Open **Try it on** on a chat card, upload a photo, and you get a labeled composite.
 
-```bash
-npm run docker:vto
-```
-
-Then in `.env`:
+**Live (per-request hosted, not a dedicated GPU):**
 
 ```env
-PYTHON_SERVICE_URL=http://localhost:8000
+VTO_PROVIDER=hosted
+REPLICATE_API_TOKEN=r8_...
 ```
 
-Restart `npm run dev`. Try-on UI calls **your** API `POST /api/virtual-try-on`, which proxies to the Python service.
+See [docs/VTO.md](docs/VTO.md). Optional sidecar: `npm run docker:vto` then `VTO_PROVIDER=python` and `PYTHON_SERVICE_URL=http://localhost:8000`.
 
 ---
 
@@ -151,9 +148,10 @@ Restart `npm run dev`. Try-on UI calls **your** API `POST /api/virtual-try-on`, 
 Do **not** run these on every boot. Use them after prompt or intent changes. They never call Claude.
 
 ```bash
-npm run eval:chat              # mock catalog, no tokens, no database, only mocked data
+npm run eval:chat              # mock catalog, no tokens, no database
 npm run eval:retrieval         # local DeepFashion mix / gender-leak
 EVAL_CHAT_CORPUS=1 npm run eval:chat   # same chats against DeepFashion images
+npm run eval:tryon             # Demo overlay composite (no Replicate)
 ```
 
 Details: [docs/EVAL_CHAT.md](docs/EVAL_CHAT.md).
@@ -170,6 +168,7 @@ Browser (localhost:3000)
                                             ├─ DATABASE_URL ──► Postgres :5432
                                             ├─ ANTHROPIC_API_KEY ──► Claude API
                                             ├─ STORAGE_MODE=local ──► ./uploads (+ /uploads URL)
+                                            ├─ VTO overlay (default) or REPLICATE_API_TOKEN
                                             └─ PYTHON_SERVICE_URL? ──► VTO :8000 (optional)
 ```
 
@@ -243,7 +242,7 @@ Point `src/lib/api.js` at your machine’s LAN IP and port **3000** (the same Ex
 | Database | Compose `postgres` | Managed Postgres (`DATABASE_URL`) |
 | API | `npm run dev` or Compose `api` | Same Docker image |
 | Uploads | `STORAGE_MODE=local` → `./uploads` | `STORAGE_MODE=s3` (stub in `objectStorage.ts`) |
-| Try-on | Compose profile `vto` | Same image or hosted VTO URL |
+| Try-on | In-process overlay; optional hosted / Compose `vto` | `VTO_PROVIDER=hosted` + token |
 
 See [docs/MILESTONE_0B_NOTES.md](docs/MILESTONE_0B_NOTES.md).
 
@@ -264,6 +263,8 @@ See [docs/MILESTONE_0B_NOTES.md](docs/MILESTONE_0B_NOTES.md).
 - [Milestone 3 cart / checkout handoff](docs/MILESTONE_3_NOTES.md)
 - [Milestone 3.5 prompt / retrieval eval](docs/MILESTONE_3_5_NOTES.md)
 - [Milestone 3.6 search / browse](docs/MILESTONE_3_6_NOTES.md)
+- [Milestone 4 virtual try-on](docs/MILESTONE_4_NOTES.md)
+- [VTO ops (overlay / hosted / python)](docs/VTO.md)
 - [Conversation simulations (eval:chat)](docs/EVAL_CHAT.md)
 
 ## License

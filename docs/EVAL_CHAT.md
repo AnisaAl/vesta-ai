@@ -14,6 +14,7 @@ After you change any of:
 - Chat system prompt copy in `fashionAi.ts`
 
 Also re-run `npm run eval:retrieval` if you changed DeepFashion scoring (`deepFashion.ts` / `catalog.ts`).
+After try-on overlay changes: `npm run eval:tryon` (no Replicate).
 
 ## Commands
 
