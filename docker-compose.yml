@@ -35,6 +35,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       STORAGE_MODE: local
       STORAGE_LOCAL_ROOT: /app/uploads
+      # overlay (default Demo) | hosted (Replicate) | python (sidecar)
+      VTO_PROVIDER: ${VTO_PROVIDER:-overlay}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+      VTO_REPLICATE_MODEL: ${VTO_REPLICATE_MODEL:-}
       # Only set when the vto profile is running; empty avoids failed try-on calls
       PYTHON_SERVICE_URL: ${PYTHON_SERVICE_URL:-}
       # Must match the bind mount below (dataset is dockerignored, not baked into the image)

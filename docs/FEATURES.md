@@ -85,9 +85,7 @@ Vesta never takes payment. Affiliate deep links are per product, so each line op
 
 | # | User can… | Status | Where |
 |---|-----------|--------|-------|
-| 28 | Click "Try it on" on any outfit card, upload a photo, and see a composite result | Demo | `VirtualTryOn.tsx` |
-
-Labeled as demo in the dialog title and an amber banner; requires `PYTHON_SERVICE_URL` (Compose profile `vto`) or it returns a setup message.
+| 28 | Click "Try it on" on a chat card, upload a photo, and see a composite (Demo overlay by default; Live when hosted VTO is keyed) | Demo / Live | `VirtualTryOn.tsx` / `virtualTryOn.ts` |
 
 ---
 

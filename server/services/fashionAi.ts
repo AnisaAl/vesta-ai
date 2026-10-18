@@ -286,9 +286,8 @@ export async function generateFashionResponse(
     }
 
     const models = [
-      "claude-3-5-sonnet-20241022",
-      "claude-3-sonnet-20240229",
-      "claude-3-haiku-20240307",
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
     ];
     
     let response;
