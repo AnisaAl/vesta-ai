@@ -13,9 +13,11 @@ Not a dedicated GPU. Set:
 ```env
 VTO_PROVIDER=hosted
 REPLICATE_API_TOKEN=r8_...
-# optional
+# optional — version hash, or cuuupid/idm-vton[:hash]
 # VTO_REPLICATE_MODEL=cuuupid/idm-vton
 ```
+
+`cuuupid/idm-vton` is a **community** model. Live try-on calls `POST /v1/predictions` with a pinned version hash (not `/v1/models/.../predictions`, which 404s). Override with `VTO_REPLICATE_MODEL` set to a 64-character version id from [the model versions page](https://replicate.com/cuuupid/idm-vton/versions).
 
 Create a token at [replicate.com/account/api-tokens](https://replicate.com/account/api-tokens) (it starts with `r8_`). Put both lines in `.env`. Do not commit `.env`.
 

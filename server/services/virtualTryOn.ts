@@ -108,6 +108,39 @@ async function pythonTryOn(request: VirtualTryOnRequest): Promise<VirtualTryOnRe
   };
 }
 
+/** Latest cuuupid/idm-vton version. Community models must use POST /v1/predictions + version. */
+const DEFAULT_IDM_VTON_VERSION =
+  "0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985";
+
+function replicateErrorMessage(
+  status: number,
+  payload: { error?: string; detail?: unknown; title?: string }
+): string {
+  const detail =
+    typeof payload.detail === "string"
+      ? payload.detail
+      : payload.detail
+        ? JSON.stringify(payload.detail)
+        : "";
+  const parts = [payload.error, payload.title, detail].filter(Boolean);
+  const hint =
+    status === 401 || status === 403
+      ? " Check REPLICATE_API_TOKEN."
+      : status === 404
+        ? " Community models need a version hash (docs/VTO.md)."
+        : " See docs/VTO.md.";
+  return `Hosted try-on failed (${status})${parts.length ? `: ${parts.join(" — ")}` : "."}${hint}`;
+}
+
+function resolveReplicateVersion(): string {
+  const raw = (process.env.VTO_REPLICATE_MODEL || "").trim();
+  if (!raw || raw === "cuuupid/idm-vton") return DEFAULT_IDM_VTON_VERSION;
+  const colon = raw.lastIndexOf(":");
+  if (colon !== -1) return raw.slice(colon + 1);
+  if (/^[a-f0-9]{64}$/i.test(raw)) return raw;
+  return DEFAULT_IDM_VTON_VERSION;
+}
+
 async function hostedTryOn(request: VirtualTryOnRequest): Promise<VirtualTryOnResponse> {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) {
@@ -116,45 +149,42 @@ async function hostedTryOn(request: VirtualTryOnRequest): Promise<VirtualTryOnRe
     );
   }
 
-  const model = process.env.VTO_REPLICATE_MODEL || "cuuupid/idm-vton";
+  const version = resolveReplicateVersion();
   const category = inferGarmentCategory(request.productName);
   const human = `data:image/png;base64,${stripDataUrl(request.userPhoto)}`;
   const garm = `data:image/png;base64,${stripDataUrl(request.productImage)}`;
 
-  const create = await fetch(
-    `https://api.replicate.com/v1/models/${model}/predictions`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Prefer: "wait=60",
+  const create = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Prefer: "wait=60",
+    },
+    body: JSON.stringify({
+      version,
+      input: {
+        human_img: human,
+        garm_img: garm,
+        garment_des: request.productName || "garment",
+        category,
+        crop: true,
       },
-      body: JSON.stringify({
-        input: {
-          human_img: human,
-          garm_img: garm,
-          garment_des: request.productName || "garment",
-          category,
-          crop: true,
-        },
-      }),
-      signal: AbortSignal.timeout(90000),
-    }
-  );
+    }),
+    signal: AbortSignal.timeout(90000),
+  });
 
   const payload = (await create.json()) as {
     output?: string | string[];
     error?: string;
+    detail?: unknown;
+    title?: string;
     status?: string;
     urls?: { get?: string };
   };
 
   if (!create.ok) {
-    throw new Error(
-      payload.error ||
-        `Hosted try-on failed (${create.status}). Check REPLICATE_API_TOKEN and docs/VTO.md.`
-    );
+    throw new Error(replicateErrorMessage(create.status, payload));
   }
 
   let output = payload.output;
