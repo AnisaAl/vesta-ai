@@ -2,7 +2,7 @@
 
 ## Goal
 
-Try-on is usable without a setup dead-end. Default is a labeled **Demo overlay** in Node (no Python, no tokens). **Live** garment-on-person when `VTO_PROVIDER=hosted` and `REPLICATE_API_TOKEN` are set (per-request Replicate IDM-VTON, not a dedicated GPU). Local Kolors weights stay optional.
+Try-on is usable without a setup dead-end. Default is a labeled **Demo overlay** in Node (no Python, no tokens). **Live** garment-on-person when `VTO_PROVIDER=hosted` and `REPLICATE_API_TOKEN` are set (per-request Replicate IDM-VTON, not a dedicated GPU). Local Kolors weights stay optional — see [KOLORS.md](KOLORS.md).
 
 ## Providers
 

@@ -151,4 +151,6 @@ The set is sized to exercise every retrieval path without padding:
 
 ## Not built yet
 
-Production try-on quality (M4) · persisted wardrobe (M5) · live trends from catalog aggregates (M6) · authentication, per-user profiles, and cart claiming on login · a browsable catalog page (products currently reach users only through chat) · abandoned-cart cleanup job.
+Persisted wardrobe (M5) · live trends from catalog aggregates (M6) · authentication, per-user profiles, and cart claiming on login · a browsable catalog page (products currently reach users only through chat) · abandoned-cart cleanup job · local Kolors VTO ([KOLORS.md](KOLORS.md)).
+
+See also [RISKS_AND_BACKLOG.md](RISKS_AND_BACKLOG.md) for deferred risks to pull into later milestones.
