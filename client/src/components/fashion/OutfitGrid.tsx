@@ -55,7 +55,9 @@ export default function OutfitGrid({ outfits }: OutfitGridProps) {
                 </>
               ) : (
                 <p className="text-[10px] text-[#6B6B6B] text-center mb-2">
-                  {outfit.description}
+                  {outfit.source === "wardrobe"
+                    ? "From your wardrobe"
+                    : outfit.description}
                 </p>
               )}
 

@@ -29,7 +29,9 @@ export interface FashionOutfit {
   priceCents?: number;
   currency?: string;
   merchant?: string;
-  source?: "affiliate" | "deepfashion" | "sample";
+  source?: "affiliate" | "deepfashion" | "sample" | "wardrobe";
+  /** Present on wardrobe cards; never shoppable. */
+  wardrobeItemId?: number;
 }
 
 export interface CartItem {

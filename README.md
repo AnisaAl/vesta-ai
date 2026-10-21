@@ -264,7 +264,10 @@ See [docs/MILESTONE_0B_NOTES.md](docs/MILESTONE_0B_NOTES.md).
 - [Milestone 3.5 prompt / retrieval eval](docs/MILESTONE_3_5_NOTES.md)
 - [Milestone 3.6 search / browse](docs/MILESTONE_3_6_NOTES.md)
 - [Milestone 4 virtual try-on](docs/MILESTONE_4_NOTES.md)
+- [Milestone 5 wardrobe](docs/MILESTONE_5_NOTES.md)
 - [VTO ops (overlay / hosted / python)](docs/VTO.md)
+- [Kolors (future local VTO)](docs/KOLORS.md)
+- [Risks & backlog](docs/RISKS_AND_BACKLOG.md)
 - [Conversation simulations (eval:chat)](docs/EVAL_CHAT.md)
 
 ## License

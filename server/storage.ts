@@ -5,6 +5,7 @@ import {
   carts,
   cartItems,
   productClicks,
+  wardrobeItems,
   type User,
   type InsertUser,
   type ChatHistory,
@@ -14,9 +15,11 @@ import {
   type InsertProduct,
   type Cart,
   type CartLine,
+  type WardrobeItem,
+  type InsertWardrobeItem,
 } from "@shared/schema";
 import { db } from "./db";
-import { and, eq, ilike, or, isNull, sql, SQL } from "drizzle-orm";
+import { and, eq, ilike, or, isNull, sql, SQL, desc } from "drizzle-orm";
 
 export interface CatalogQuery {
   audience?: string;
@@ -60,6 +63,16 @@ export interface IStorage {
     sessionId: string | null,
     source: string
   ): Promise<void>;
+
+  listWardrobeItems(sessionId: string): Promise<WardrobeItem[]>;
+  getWardrobeItem(sessionId: string, id: number): Promise<WardrobeItem | undefined>;
+  createWardrobeItem(item: InsertWardrobeItem): Promise<WardrobeItem>;
+  updateWardrobeItem(
+    sessionId: string,
+    id: number,
+    patch: Partial<Pick<WardrobeItem, "title" | "tag" | "category" | "colors">>
+  ): Promise<WardrobeItem | undefined>;
+  deleteWardrobeItem(sessionId: string, id: number): Promise<WardrobeItem | undefined>;
 }
 
 function buildProductFilters(query: CatalogQuery = {}): SQL[] {
@@ -354,6 +367,67 @@ export class DatabaseStorage implements IStorage {
     source: string
   ): Promise<void> {
     await db.insert(productClicks).values({ productId, sessionId, source });
+  }
+
+  async listWardrobeItems(sessionId: string): Promise<WardrobeItem[]> {
+    return db
+      .select()
+      .from(wardrobeItems)
+      .where(eq(wardrobeItems.sessionId, sessionId))
+      .orderBy(desc(wardrobeItems.createdAt));
+  }
+
+  async getWardrobeItem(
+    sessionId: string,
+    id: number
+  ): Promise<WardrobeItem | undefined> {
+    const [row] = await db
+      .select()
+      .from(wardrobeItems)
+      .where(and(eq(wardrobeItems.id, id), eq(wardrobeItems.sessionId, sessionId)))
+      .limit(1);
+    return row || undefined;
+  }
+
+  async createWardrobeItem(item: InsertWardrobeItem): Promise<WardrobeItem> {
+    const [created] = await db
+      .insert(wardrobeItems)
+      .values({
+        sessionId: item.sessionId,
+        userId: item.userId ?? null,
+        title: item.title,
+        imageKey: item.imageKey,
+        imageUrl: item.imageUrl,
+        category: item.category ?? "unknown",
+        tag: item.tag ?? "other",
+        colors: (item.colors as string[] | undefined) ?? [],
+      })
+      .returning();
+    return created;
+  }
+
+  async updateWardrobeItem(
+    sessionId: string,
+    id: number,
+    patch: Partial<Pick<WardrobeItem, "title" | "tag" | "category" | "colors">>
+  ): Promise<WardrobeItem | undefined> {
+    const [updated] = await db
+      .update(wardrobeItems)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(wardrobeItems.id, id), eq(wardrobeItems.sessionId, sessionId)))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteWardrobeItem(
+    sessionId: string,
+    id: number
+  ): Promise<WardrobeItem | undefined> {
+    const [removed] = await db
+      .delete(wardrobeItems)
+      .where(and(eq(wardrobeItems.id, id), eq(wardrobeItems.sessionId, sessionId)))
+      .returning();
+    return removed || undefined;
   }
 
   private async touchCart(cartId: number): Promise<void> {

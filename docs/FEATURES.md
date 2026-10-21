@@ -93,11 +93,12 @@ Vesta never takes payment. Affiliate deep links are per product, so each line op
 
 | # | User can… | Status | Where |
 |---|-----------|--------|-------|
-| 29 | Upload wardrobe items and see them as cards | Demo | `Wardrobe.tsx` — React state only, lost on refresh |
+| 29 | Upload wardrobe items that survive refresh; remove items | Live | `Wardrobe.tsx` + `wardrobe_items` + `objectStorage` |
+| 29a | Have chat name or show owned pieces (non-shoppable) while still suggesting affiliate catalog | Live | `fashionAi.ts` / `wardrobe.ts` |
 | 30 | View a profile preview (avatar, style preferences, favorite colors) | Placeholder | `Profile.tsx` — static, no editing |
 | 31 | Browse trending styles and color trends | Placeholder | `Trends.tsx` — hardcoded, images currently broken |
 
-Persistence for these lands in Milestones 5 and 6.
+Profile/trends persistence lands in Milestone 6 / auth.
 
 ---
 
@@ -151,4 +152,6 @@ The set is sized to exercise every retrieval path without padding:
 
 ## Not built yet
 
-Production try-on quality (M4) · persisted wardrobe (M5) · live trends from catalog aggregates (M6) · authentication, per-user profiles, and cart claiming on login · a browsable catalog page (products currently reach users only through chat) · abandoned-cart cleanup job.
+Live trends from catalog aggregates (M6) · authentication, per-user profiles, and cart claiming on login · a browsable catalog page (products currently reach users only through chat) · abandoned-cart cleanup job · local Kolors VTO ([KOLORS.md](KOLORS.md)).
+
+See also [RISKS_AND_BACKLOG.md](RISKS_AND_BACKLOG.md) for deferred risks to pull into later milestones.
