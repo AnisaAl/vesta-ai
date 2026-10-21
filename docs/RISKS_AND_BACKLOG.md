@@ -9,7 +9,7 @@ Deferred work and known risks. Pull items into a milestone when they become bloc
 | Trends page is hardcoded; images broken | Misleading “live” trends | M6 — catalog aggregates |
 | Profile is static (no edit) | Fake personalization | Auth + editable profile |
 | No browsable catalog page | Products only via chat | Catalog UI slice |
-| Wardrobe items must never be sold | Own-closet photos ≠ affiliate inventory | Keep: no `productId` / no Add to bag on wardrobe cards |
+| Wardrobe items must never be sold | Own-closet photos ≠ affiliate inventory | M5 keeps: no `productId` / no Add to bag on wardrobe cards |
 | Demo affiliate URLs (`example.com`) | Click-through goes nowhere in demos | Real partner feed when available |
 
 ## Commerce / compliance

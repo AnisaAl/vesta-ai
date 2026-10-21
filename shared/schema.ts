@@ -130,6 +130,32 @@ export const productClicks = pgTable("product_clicks", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+/**
+ * User closet uploads (not shoppable). Keyed by anonymous session like carts;
+ * `userId` fills in when auth ships. Images live in objectStorage; never sell these.
+ */
+export const wardrobeItems = pgTable("wardrobe_items", {
+  id: serial("id").primaryKey(),
+  sessionId: text("session_id").notNull(),
+  userId: integer("user_id").references(() => users.id),
+  title: text("title").notNull(),
+  imageKey: text("image_key").notNull(),
+  imageUrl: text("image_url").notNull(),
+  /** Aligns with GarmentCategory in fashionIntent */
+  category: text("category").notNull().default("unknown"),
+  /** casual | business | colorful | festive | other (UI tag) */
+  tag: text("tag").notNull().default("other"),
+  colors: jsonb("colors").$type<string[]>().notNull().default([]),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertWardrobeItemSchema = createInsertSchema(wardrobeItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Define types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -143,6 +169,9 @@ export type Product = typeof products.$inferSelect;
 export type Cart = typeof carts.$inferSelect;
 export type CartItem = typeof cartItems.$inferSelect;
 export type ProductClick = typeof productClicks.$inferSelect;
+
+export type InsertWardrobeItem = z.infer<typeof insertWardrobeItemSchema>;
+export type WardrobeItem = typeof wardrobeItems.$inferSelect;
 
 /** Cart row joined with its product, as returned by the cart API. */
 export interface CartLine {
