@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { Upload, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,14 +23,13 @@ function getTagColor(tag: string) {
 
 export function Wardrobe() {
   const { items, isLoading, isError, upload, removeItem } = useWardrobe();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const emptyInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
       upload.mutate({ file: files[0], tag: 'other' as WardrobeTag });
     }
+    // Allow re-selecting the same file
     event.target.value = '';
   };
 
@@ -53,22 +52,29 @@ export function Wardrobe() {
               Upload images of your clothing items to build your digital wardrobe
             </p>
             <div className="flex justify-center">
+              {/*
+                Native <label htmlFor> — same pattern as VirtualTryOn.
+                Programmatic input.click() on display:none inputs is unreliable
+                in some browsers / Docker-served production builds.
+              */}
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleFileUpload}
-                className="hidden"
-                id="file-upload"
-                ref={fileInputRef}
+                className="sr-only"
+                id="wardrobe-file-upload"
                 disabled={upload.isPending}
               />
-              <Button
-                className="cursor-pointer"
-                disabled={upload.isPending}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                {upload.isPending ? 'Uploading…' : 'Upload Images'}
+              <Button asChild disabled={upload.isPending}>
+                <label
+                  htmlFor="wardrobe-file-upload"
+                  className={`cursor-pointer inline-flex items-center ${
+                    upload.isPending ? 'pointer-events-none opacity-50' : ''
+                  }`}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  {upload.isPending ? 'Uploading…' : 'Upload Images'}
+                </label>
               </Button>
             </div>
           </div>
@@ -103,6 +109,7 @@ export function Wardrobe() {
                       <Badge className={getTagColor(item.tag)}>{item.tag}</Badge>
                     </div>
                     <Button
+                      type="button"
                       variant="ghost"
                       size="icon"
                       aria-label={`Remove ${item.title}`}
@@ -127,18 +134,20 @@ export function Wardrobe() {
                   type="file"
                   accept="image/*"
                   onChange={handleFileUpload}
-                  className="hidden"
-                  id="empty-upload"
-                  ref={emptyInputRef}
+                  className="sr-only"
+                  id="wardrobe-empty-upload"
                   disabled={upload.isPending}
                 />
-                <Button
-                  className="cursor-pointer"
-                  disabled={upload.isPending}
-                  onClick={() => emptyInputRef.current?.click()}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Upload Your First Item
+                <Button asChild disabled={upload.isPending}>
+                  <label
+                    htmlFor="wardrobe-empty-upload"
+                    className={`cursor-pointer inline-flex items-center ${
+                      upload.isPending ? 'pointer-events-none opacity-50' : ''
+                    }`}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Upload Your First Item
+                  </label>
                 </Button>
               </div>
             )}

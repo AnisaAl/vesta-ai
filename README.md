@@ -213,6 +213,8 @@ curl -s http://localhost:3000/api/chat \
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 docker compose --profile full up --build
+# Wardrobe/cart need COOKIE_SECURE=false on http://localhost (Compose default).
+# After pulling M5 fixes: docker compose --profile full up -d --build api
 ```
 
 App: http://localhost:3000 · DB only reachable as `postgres` inside the network (host still uses `localhost:5432` if the postgres service is up).

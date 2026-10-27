@@ -32,6 +32,13 @@ Same anonymous session cookie as cart. Optional `userId` set to the seeded local
 
 Images are served from `/uploads/...` when `STORAGE_MODE=local`.
 
+## Docker Compose (`--profile full`)
+
+- Boot calls `ensureWardrobeItemsTable()` so a fresh Compose Postgres volume still gets `wardrobe_items`.
+- Compose sets `COOKIE_SECURE=false` because the stack is served over **http://localhost**. A `Secure` cookie would be ignored by the browser and wardrobe/cart sessions would not stick.
+- Rebuild after pulling: `docker compose --profile full up -d --build api`
+- Upload control uses a native `<label htmlFor>` (same as try-on), not `input.click()` on a `display:none` file input.
+
 ## Chat
 
 - Loads wardrobe for the session on every `POST /api/chat`.

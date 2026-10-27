@@ -70,7 +70,12 @@ export function useWardrobe() {
       ]);
       toast({ title: 'Added to wardrobe' });
     },
-    onError: () => toast({ title: 'Could not upload item', variant: 'destructive' }),
+    onError: (err: Error) =>
+      toast({
+        title: 'Could not upload item',
+        description: err?.message || 'Check that the API is running and wardrobe_items exists.',
+        variant: 'destructive',
+      }),
   });
 
   const updateItem = useMutation({
