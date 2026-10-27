@@ -8,8 +8,9 @@ Replace in-memory Unsplash / blob-URL wardrobe with Postgres rows + `objectStora
 
 | Piece | Location |
 |--------|----------|
-| `wardrobe_items` table | `shared/schema.ts` |
+| `wardrobe_items` table | `shared/schema.ts` + `migrations/0001_wardrobe_items.sql` |
 | Storage CRUD | `server/storage.ts` |
+| Boot ensure (if push skipped) | `ensureWardrobeItemsTable` in `server/db.ts` |
 | Upload decode + wardrobe API | `server/routes.ts` |
 | Closet scoring / inventory text | `server/services/wardrobe.ts` |
 | Chat grounding (prompt + non-shoppable cards) | `server/services/fashionAi.ts` |
