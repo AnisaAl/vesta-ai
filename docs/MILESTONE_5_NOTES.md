@@ -38,6 +38,7 @@ Images are served from `/uploads/...` when `STORAGE_MODE=local`.
 - Compose sets `COOKIE_SECURE=false` because the stack is served over **http://localhost**. A `Secure` cookie would be ignored by the browser and wardrobe/cart sessions would not stick.
 - Rebuild after pulling: `docker compose --profile full up -d --build api`
 - Upload control uses a native `<label htmlFor>` (same as try-on), not `input.click()` on a `display:none` file input.
+- After picking a file, a short dialog asks for a **name** before `POST /api/wardrobe` — the item only appears in the grid once saved.
 
 ## Chat
 

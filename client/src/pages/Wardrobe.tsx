@@ -1,7 +1,17 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Upload, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useWardrobe, type WardrobeTag } from '@/hooks/useWardrobe';
 
 function getTagColor(tag: string) {
@@ -21,16 +31,67 @@ function getTagColor(tag: string) {
   }
 }
 
+function titleFromFilename(name: string): string {
+  return name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || 'Wardrobe item';
+}
+
 export function Wardrobe() {
   const { items, isLoading, isError, upload, removeItem } = useWardrobe();
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+  const [pendingTitle, setPendingTitle] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!pendingFile) {
+      setPendingPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(pendingFile);
+    setPendingPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingFile]);
+
+  useEffect(() => {
+    if (pendingFile) {
+      // Focus after dialog opens
+      const t = window.setTimeout(() => {
+        titleInputRef.current?.focus();
+        titleInputRef.current?.select();
+      }, 50);
+      return () => window.clearTimeout(t);
+    }
+  }, [pendingFile]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      upload.mutate({ file: files[0], tag: 'other' as WardrobeTag });
+      const file = files[0];
+      setPendingFile(file);
+      setPendingTitle(titleFromFilename(file.name));
     }
     // Allow re-selecting the same file
     event.target.value = '';
+  };
+
+  const closeNameDialog = () => {
+    if (upload.isPending) return;
+    setPendingFile(null);
+    setPendingTitle('');
+  };
+
+  const confirmUpload = () => {
+    if (!pendingFile) return;
+    const title = pendingTitle.trim() || titleFromFilename(pendingFile.name);
+    upload.mutate(
+      { file: pendingFile, title, tag: 'other' as WardrobeTag },
+      {
+        onSuccess: () => {
+          setPendingFile(null);
+          setPendingTitle('');
+        },
+      }
+    );
   };
 
   return (
@@ -39,7 +100,7 @@ export function Wardrobe() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">My Wardrobe</h1>
           <p className="text-muted-foreground">
-            Upload clothing you own. Items persist across refresh and can be referenced in chat.
+            Upload clothing you own. Name each piece before it is saved — chat can reference those titles.
             Closet pieces are never sold — shopping stays on the affiliate catalog.
           </p>
         </div>
@@ -49,27 +110,22 @@ export function Wardrobe() {
             <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Add New Items</h3>
             <p className="text-muted-foreground mb-4">
-              Upload images of your clothing items to build your digital wardrobe
+              Upload an image, then give it a name before it appears in your wardrobe
             </p>
             <div className="flex justify-center">
-              {/*
-                Native <label htmlFor> — same pattern as VirtualTryOn.
-                Programmatic input.click() on display:none inputs is unreliable
-                in some browsers / Docker-served production builds.
-              */}
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleFileUpload}
                 className="sr-only"
                 id="wardrobe-file-upload"
-                disabled={upload.isPending}
+                disabled={upload.isPending || Boolean(pendingFile)}
               />
-              <Button asChild disabled={upload.isPending}>
+              <Button asChild disabled={upload.isPending || Boolean(pendingFile)}>
                 <label
                   htmlFor="wardrobe-file-upload"
                   className={`cursor-pointer inline-flex items-center ${
-                    upload.isPending ? 'pointer-events-none opacity-50' : ''
+                    upload.isPending || pendingFile ? 'pointer-events-none opacity-50' : ''
                   }`}
                 >
                   <Plus className="w-4 h-4 mr-2" />
@@ -136,13 +192,13 @@ export function Wardrobe() {
                   onChange={handleFileUpload}
                   className="sr-only"
                   id="wardrobe-empty-upload"
-                  disabled={upload.isPending}
+                  disabled={upload.isPending || Boolean(pendingFile)}
                 />
-                <Button asChild disabled={upload.isPending}>
+                <Button asChild disabled={upload.isPending || Boolean(pendingFile)}>
                   <label
                     htmlFor="wardrobe-empty-upload"
                     className={`cursor-pointer inline-flex items-center ${
-                      upload.isPending ? 'pointer-events-none opacity-50' : ''
+                      upload.isPending || pendingFile ? 'pointer-events-none opacity-50' : ''
                     }`}
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -154,6 +210,69 @@ export function Wardrobe() {
           </>
         )}
       </div>
+
+      <Dialog
+        open={Boolean(pendingFile)}
+        onOpenChange={(open) => {
+          if (!open) closeNameDialog();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Name this piece</DialogTitle>
+            <DialogDescription>
+              Choose a clear name before it is saved to your wardrobe. Chat can use this title later.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingPreviewUrl && (
+            <div className="mx-auto w-40 aspect-square overflow-hidden rounded-md border bg-muted">
+              <img
+                src={pendingPreviewUrl}
+                alt="Upload preview"
+                className="h-full w-full object-cover"
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="wardrobe-item-title">Name</Label>
+            <Input
+              id="wardrobe-item-title"
+              ref={titleInputRef}
+              value={pendingTitle}
+              onChange={(e) => setPendingTitle(e.target.value)}
+              maxLength={120}
+              placeholder="e.g. Navy blazer"
+              disabled={upload.isPending}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirmUpload();
+                }
+              }}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeNameDialog}
+              disabled={upload.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmUpload}
+              disabled={upload.isPending || !pendingTitle.trim()}
+            >
+              {upload.isPending ? 'Saving…' : 'Add to wardrobe'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
