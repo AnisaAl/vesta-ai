@@ -20,6 +20,20 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, ilike, or, isNull, sql, SQL, desc } from "drizzle-orm";
+import { appendFileSync } from "fs";
+
+// #region agent log
+function dbgLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown> = {}) {
+  try {
+    appendFileSync(
+      "/opt/cursor/logs/debug.log",
+      JSON.stringify({ hypothesisId, location, message, data, timestamp: Date.now() }) + "\n"
+    );
+  } catch {
+    /* ignore debug log IO errors */
+  }
+}
+// #endregion
 
 export interface CatalogQuery {
   audience?: string;
@@ -370,11 +384,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async listWardrobeItems(sessionId: string): Promise<WardrobeItem[]> {
-    return db
-      .select()
-      .from(wardrobeItems)
-      .where(eq(wardrobeItems.sessionId, sessionId))
-      .orderBy(desc(wardrobeItems.createdAt));
+    // #region agent log
+    dbgLog("A", "storage.ts:listWardrobeItems", "query start", {
+      sessionIdPresent: Boolean(sessionId),
+      sessionIdLen: sessionId?.length ?? 0,
+    });
+    // #endregion
+    try {
+      const rows = await db
+        .select()
+        .from(wardrobeItems)
+        .where(eq(wardrobeItems.sessionId, sessionId))
+        .orderBy(desc(wardrobeItems.createdAt));
+      // #region agent log
+      dbgLog("A", "storage.ts:listWardrobeItems", "query ok", { count: rows.length });
+      // #endregion
+      return rows;
+    } catch (error) {
+      // #region agent log
+      dbgLog("A", "storage.ts:listWardrobeItems", "query failed", {
+        errName: error instanceof Error ? error.name : typeof error,
+        errMessage: error instanceof Error ? error.message : String(error),
+        errCode: (error as { code?: string })?.code,
+        errDetail: (error as { detail?: string })?.detail,
+      });
+      // #endregion
+      throw error;
+    }
   }
 
   async getWardrobeItem(
@@ -390,20 +426,45 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWardrobeItem(item: InsertWardrobeItem): Promise<WardrobeItem> {
-    const [created] = await db
-      .insert(wardrobeItems)
-      .values({
-        sessionId: item.sessionId,
-        userId: item.userId ?? null,
-        title: item.title,
-        imageKey: item.imageKey,
-        imageUrl: item.imageUrl,
-        category: item.category ?? "unknown",
-        tag: item.tag ?? "other",
-        colors: (item.colors as string[] | undefined) ?? [],
-      })
-      .returning();
-    return created;
+    // #region agent log
+    dbgLog("A", "storage.ts:createWardrobeItem", "insert start", {
+      sessionIdPresent: Boolean(item.sessionId),
+      userId: item.userId ?? null,
+      hasImageKey: Boolean(item.imageKey),
+      hasImageUrl: Boolean(item.imageUrl),
+      category: item.category,
+      tag: item.tag,
+    });
+    // #endregion
+    try {
+      const [created] = await db
+        .insert(wardrobeItems)
+        .values({
+          sessionId: item.sessionId,
+          userId: item.userId ?? null,
+          title: item.title,
+          imageKey: item.imageKey,
+          imageUrl: item.imageUrl,
+          category: item.category ?? "unknown",
+          tag: item.tag ?? "other",
+          colors: (item.colors as string[] | undefined) ?? [],
+        })
+        .returning();
+      // #region agent log
+      dbgLog("A", "storage.ts:createWardrobeItem", "insert ok", { id: created?.id });
+      // #endregion
+      return created;
+    } catch (error) {
+      // #region agent log
+      dbgLog("A", "storage.ts:createWardrobeItem", "insert failed", {
+        errName: error instanceof Error ? error.name : typeof error,
+        errMessage: error instanceof Error ? error.message : String(error),
+        errCode: (error as { code?: string })?.code,
+        errDetail: (error as { detail?: string })?.detail,
+      });
+      // #endregion
+      throw error;
+    }
   }
 
   async updateWardrobeItem(

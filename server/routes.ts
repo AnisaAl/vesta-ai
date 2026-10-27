@@ -9,6 +9,20 @@ import { getDeepFashionRecommendations, getDeepFashionOutfits } from "./services
 import { objectStorage } from "./services/objectStorage";
 import { inferCategoryFromTitle } from "./services/wardrobe";
 import { randomUUID } from "crypto";
+import { appendFileSync } from "fs";
+
+// #region agent log
+function dbgLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown> = {}) {
+  try {
+    appendFileSync(
+      "/opt/cursor/logs/debug.log",
+      JSON.stringify({ hypothesisId, location, message, data, timestamp: Date.now() }) + "\n"
+    );
+  } catch {
+    /* ignore debug log IO errors */
+  }
+}
+// #endregion
 
 const WARDROBE_TAGS = ["casual", "business", "colorful", "festive", "other"] as const;
 
@@ -246,16 +260,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * Items are never shoppable — chat may reference them; catalog remains affiliate-only.
    */
   app.get('/api/wardrobe', async (req, res) => {
+    // #region agent log
+    dbgLog("A", "routes.ts:GET /api/wardrobe", "list entry", {
+      sessionIdPresent: Boolean(req.sessionId),
+      sessionIdLen: req.sessionId?.length ?? 0,
+    });
+    // #endregion
     try {
       const items = await storage.listWardrobeItems(req.sessionId);
+      // #region agent log
+      dbgLog("A", "routes.ts:GET /api/wardrobe", "list success", { count: items.length });
+      // #endregion
       return res.json({ success: true, items });
     } catch (error) {
+      // #region agent log
+      dbgLog("A", "routes.ts:GET /api/wardrobe", "list failed", {
+        errName: error instanceof Error ? error.name : typeof error,
+        errMessage: error instanceof Error ? error.message : String(error),
+        errCode: (error as { code?: string })?.code,
+      });
+      // #endregion
       console.error('Error listing wardrobe:', error);
       return res.status(500).json({ message: 'Error listing wardrobe' });
     }
   });
 
   app.post('/api/wardrobe', async (req, res) => {
+    // #region agent log
+    dbgLog("C", "routes.ts:POST /api/wardrobe", "upload entry", {
+      sessionIdPresent: Boolean(req.sessionId),
+      hasImageData: typeof req.body?.imageData === "string",
+      imageDataLen: typeof req.body?.imageData === "string" ? req.body.imageData.length : 0,
+      storageMode: process.env.STORAGE_MODE || "local",
+    });
+    // #endregion
     try {
       const body = z
         .object({
@@ -275,9 +313,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Image too large (max 12MB)' });
       }
 
+      // #region agent log
+      dbgLog("C", "routes.ts:POST /api/wardrobe", "before objectStorage", {
+        bufferLen: buffer.length,
+        contentType,
+        ext,
+      });
+      // #endregion
       await objectStorage.ensureReady();
       const key = `wardrobe/${req.sessionId}/${randomUUID()}.${ext}`;
       const stored = await objectStorage.putObject(key, buffer, contentType);
+      // #region agent log
+      dbgLog("C", "routes.ts:POST /api/wardrobe", "objectStorage ok", {
+        key: stored.key,
+        url: stored.url,
+      });
+      // #endregion
 
       const title = body.title || `Wardrobe item`;
       const category =
@@ -285,7 +336,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? body.category
           : inferCategoryFromTitle(title);
 
+      // #region agent log
+      dbgLog("D", "routes.ts:POST /api/wardrobe", "before ensureLocalUser", {});
+      // #endregion
       const localUser = await storage.ensureLocalUser();
+      // #region agent log
+      dbgLog("D", "routes.ts:POST /api/wardrobe", "ensureLocalUser ok", { userId: localUser.id });
+      // #endregion
       const item = await storage.createWardrobeItem({
         sessionId: req.sessionId,
         userId: localUser.id,
@@ -296,12 +353,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tag: body.tag || "other",
         colors: body.colors || [],
       });
+      // #region agent log
+      dbgLog("A", "routes.ts:POST /api/wardrobe", "createWardrobeItem ok", { itemId: item?.id });
+      // #endregion
 
       return res.status(201).json({ success: true, item });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: 'Invalid wardrobe upload', errors: error.errors });
       }
+      // #region agent log
+      dbgLog("A", "routes.ts:POST /api/wardrobe", "upload failed", {
+        errName: error instanceof Error ? error.name : typeof error,
+        errMessage: error instanceof Error ? error.message : String(error),
+        errCode: (error as { code?: string })?.code,
+      });
+      // #endregion
       console.error('Error uploading wardrobe item:', error);
       return res.status(500).json({ message: 'Error uploading wardrobe item' });
     }
