@@ -79,9 +79,14 @@ export function selectWardrobeForChat(
 ): FashionOutfit[] {
   if (items.length === 0) return [];
 
+  const q = userMessage.toLowerCase();
   const wantWardrobe =
     mentionsWardrobe(userMessage) ||
-    items.some((item) => userMessage.toLowerCase().includes(item.title.toLowerCase()));
+    items.some((item) => {
+      const title = (item.title || "").toLowerCase().trim();
+      // Avoid empty / tiny titles matching every message (e.g. "a", "tee")
+      return title.length >= 4 && q.includes(title);
+    });
 
   const scored = items
     .map((item) => ({ item, score: scoreWardrobeItem(item, plan, userMessage) }))

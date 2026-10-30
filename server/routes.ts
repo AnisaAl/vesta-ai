@@ -268,6 +268,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .parse(req.body);
 
       const { buffer, contentType, ext } = decodeDataUrl(body.imageData);
+      if (!contentType.startsWith('image/')) {
+        return res.status(400).json({ message: 'Only image uploads are supported' });
+      }
       if (buffer.length < 32) {
         return res.status(400).json({ message: 'Image data is empty or invalid' });
       }
@@ -285,19 +288,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? body.category
           : inferCategoryFromTitle(title);
 
-      const localUser = await storage.ensureLocalUser();
-      const item = await storage.createWardrobeItem({
-        sessionId: req.sessionId,
-        userId: localUser.id,
-        title,
-        imageKey: stored.key,
-        imageUrl: stored.url,
-        category,
-        tag: body.tag || "other",
-        colors: body.colors || [],
-      });
+      try {
+        const localUser = await storage.ensureLocalUser();
+        const item = await storage.createWardrobeItem({
+          sessionId: req.sessionId,
+          userId: localUser.id,
+          title,
+          imageKey: stored.key,
+          imageUrl: stored.url,
+          category,
+          tag: body.tag || "other",
+          colors: body.colors || [],
+        });
 
-      return res.status(201).json({ success: true, item });
+        return res.status(201).json({ success: true, item });
+      } catch (dbError) {
+        // Avoid orphan files when the DB insert fails after putObject
+        try {
+          await objectStorage.deleteObject(stored.key);
+        } catch (cleanupError) {
+          console.error('Error cleaning up wardrobe upload after DB failure:', cleanupError);
+        }
+        throw dbError;
+      }
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: 'Invalid wardrobe upload', errors: error.errors });
@@ -323,6 +336,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })
         .parse(req.body);
 
+      if (
+        body.title === undefined &&
+        body.tag === undefined &&
+        body.category === undefined &&
+        body.colors === undefined
+      ) {
+        return res.status(400).json({ message: 'No wardrobe fields to update' });
+      }
+
       const updated = await storage.updateWardrobeItem(req.sessionId, id, body);
       if (!updated) {
         return res.status(404).json({ message: 'Wardrobe item not found' });
@@ -347,6 +369,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const removed = await storage.deleteWardrobeItem(req.sessionId, id);
       if (!removed) {
         return res.status(404).json({ message: 'Wardrobe item not found' });
+      }
+      try {
+        await objectStorage.deleteObject(removed.imageKey);
+      } catch (cleanupError) {
+        // Row is already gone; log orphan file for ops rather than failing the client
+        console.error('Error deleting wardrobe image file:', cleanupError);
       }
       return res.json({ success: true, item: removed });
     } catch (error) {

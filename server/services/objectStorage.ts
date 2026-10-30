@@ -18,6 +18,8 @@ export interface ObjectStorage {
   readonly mode: StorageMode;
   ensureReady(): Promise<void>;
   putObject(key: string, data: Buffer, contentType?: string): Promise<StoredObject>;
+  /** Best-effort delete; missing keys are ignored. */
+  deleteObject(key: string): Promise<void>;
   getPublicUrl(key: string): string;
 }
 
@@ -41,6 +43,17 @@ class LocalObjectStorage implements ObjectStorage {
     return { key: safeKey, url: this.getPublicUrl(safeKey) };
   }
 
+  async deleteObject(key: string): Promise<void> {
+    const safeKey = key.replace(/^\/+/, "").replace(/\.\./g, "");
+    if (!safeKey) return;
+    const fullPath = path.join(this.root, safeKey);
+    try {
+      await fs.unlink(fullPath);
+    } catch (err: any) {
+      if (err?.code !== "ENOENT") throw err;
+    }
+  }
+
   getPublicUrl(key: string): string {
     const safeKey = key.replace(/^\/+/, "");
     return `/uploads/${safeKey}`;
@@ -60,6 +73,10 @@ class S3ObjectStorageStub implements ObjectStorage {
   async putObject(): Promise<StoredObject> {
     await this.ensureReady();
     throw new Error("unreachable");
+  }
+
+  async deleteObject(): Promise<void> {
+    await this.ensureReady();
   }
 
   getPublicUrl(key: string): string {

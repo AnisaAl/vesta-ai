@@ -26,8 +26,9 @@ export async function ensureWardrobeItemsTable(): Promise<void> {
     LIMIT 1
   `;
   if (existing.length === 0) {
+    // IF NOT EXISTS + ignore races when multiple API replicas boot together
     await client`
-      CREATE TABLE "wardrobe_items" (
+      CREATE TABLE IF NOT EXISTS "wardrobe_items" (
         "id" serial PRIMARY KEY NOT NULL,
         "session_id" text NOT NULL,
         "user_id" integer,
