@@ -39,6 +39,8 @@ Images are served from `/uploads/...` when `STORAGE_MODE=local`.
 - Rebuild after pulling: `docker compose --profile full up -d --build api`
 - Upload control uses a native `<label htmlFor>` (same as try-on), not `input.click()` on a `display:none` file input.
 - After picking a file, a short dialog asks for a **name** before `POST /api/wardrobe` — the item only appears in the grid once saved.
+- Existing cards have a pencil control that `PATCH`es the title. Dialogs use `z-[100]` so they sit above the app header (`z-50`).
+- Docker users must rebuild the API image to get client changes: `docker compose --profile full up -d --build api`, then hard-refresh the browser.
 
 ## Chat
 

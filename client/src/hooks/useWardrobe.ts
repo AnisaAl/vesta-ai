@@ -97,8 +97,14 @@ export function useWardrobe() {
           item.id === payload.item.id ? (payload.item as WardrobeItemDto) : item
         )
       );
+      toast({ title: 'Name updated' });
     },
-    onError: () => toast({ title: 'Could not update item', variant: 'destructive' }),
+    onError: (err: Error) =>
+      toast({
+        title: 'Could not rename item',
+        description: err?.message || 'Try again in a moment.',
+        variant: 'destructive',
+      }),
   });
 
   const removeItem = useMutation({

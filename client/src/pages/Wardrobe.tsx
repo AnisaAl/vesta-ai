@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Upload, Plus, Trash2 } from 'lucide-react';
+import { Upload, Plus, Trash2, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useWardrobe, type WardrobeTag } from '@/hooks/useWardrobe';
+import { useWardrobe, type WardrobeItemDto, type WardrobeTag } from '@/hooks/useWardrobe';
 
 function getTagColor(tag: string) {
   switch (tag) {
@@ -36,11 +36,18 @@ function titleFromFilename(name: string): string {
 }
 
 export function Wardrobe() {
-  const { items, isLoading, isError, upload, removeItem } = useWardrobe();
+  const { items, isLoading, isError, upload, updateItem, removeItem } = useWardrobe();
+
+  // Name-before-save (new upload)
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
   const [pendingTitle, setPendingTitle] = useState('');
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  const uploadTitleRef = useRef<HTMLInputElement>(null);
+
+  // Rename existing item
+  const [renamingItem, setRenamingItem] = useState<WardrobeItemDto | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const renameTitleRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!pendingFile) {
@@ -53,15 +60,22 @@ export function Wardrobe() {
   }, [pendingFile]);
 
   useEffect(() => {
-    if (pendingFile) {
-      // Focus after dialog opens
-      const t = window.setTimeout(() => {
-        titleInputRef.current?.focus();
-        titleInputRef.current?.select();
-      }, 50);
-      return () => window.clearTimeout(t);
-    }
+    if (!pendingFile) return;
+    const t = window.setTimeout(() => {
+      uploadTitleRef.current?.focus();
+      uploadTitleRef.current?.select();
+    }, 50);
+    return () => window.clearTimeout(t);
   }, [pendingFile]);
+
+  useEffect(() => {
+    if (!renamingItem) return;
+    const t = window.setTimeout(() => {
+      renameTitleRef.current?.focus();
+      renameTitleRef.current?.select();
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [renamingItem]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -70,11 +84,10 @@ export function Wardrobe() {
       setPendingFile(file);
       setPendingTitle(titleFromFilename(file.name));
     }
-    // Allow re-selecting the same file
     event.target.value = '';
   };
 
-  const closeNameDialog = () => {
+  const closeUploadDialog = () => {
     if (upload.isPending) return;
     setPendingFile(null);
     setPendingTitle('');
@@ -94,13 +107,44 @@ export function Wardrobe() {
     );
   };
 
+  const openRename = (item: WardrobeItemDto) => {
+    setRenamingItem(item);
+    setRenameTitle(item.title);
+  };
+
+  const closeRename = () => {
+    if (updateItem.isPending) return;
+    setRenamingItem(null);
+    setRenameTitle('');
+  };
+
+  const confirmRename = () => {
+    if (!renamingItem) return;
+    const title = renameTitle.trim();
+    if (!title || title === renamingItem.title) {
+      closeRename();
+      return;
+    }
+    updateItem.mutate(
+      { id: renamingItem.id, title },
+      {
+        onSuccess: () => {
+          setRenamingItem(null);
+          setRenameTitle('');
+        },
+      }
+    );
+  };
+
+  const busy = upload.isPending || updateItem.isPending || Boolean(pendingFile);
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">My Wardrobe</h1>
           <p className="text-muted-foreground">
-            Upload clothing you own. Name each piece before it is saved — chat can reference those titles.
+            Upload clothing you own. Name each new piece before it is saved, or rename any card later.
             Closet pieces are never sold — shopping stays on the affiliate catalog.
           </p>
         </div>
@@ -110,7 +154,7 @@ export function Wardrobe() {
             <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Add New Items</h3>
             <p className="text-muted-foreground mb-4">
-              Upload an image, then give it a name before it appears in your wardrobe
+              Choose a photo, then set the name in the dialog before it appears below
             </p>
             <div className="flex justify-center">
               <input
@@ -119,13 +163,13 @@ export function Wardrobe() {
                 onChange={handleFileUpload}
                 className="sr-only"
                 id="wardrobe-file-upload"
-                disabled={upload.isPending || Boolean(pendingFile)}
+                disabled={busy}
               />
-              <Button asChild disabled={upload.isPending || Boolean(pendingFile)}>
+              <Button asChild disabled={busy}>
                 <label
                   htmlFor="wardrobe-file-upload"
                   className={`cursor-pointer inline-flex items-center ${
-                    upload.isPending || pendingFile ? 'pointer-events-none opacity-50' : ''
+                    busy ? 'pointer-events-none opacity-50' : ''
                   }`}
                 >
                   <Plus className="w-4 h-4 mr-2" />
@@ -160,20 +204,32 @@ export function Wardrobe() {
                     />
                   </div>
                   <div className="p-4 flex items-start justify-between gap-2">
-                    <div>
-                      <h3 className="font-semibold text-foreground mb-2">{item.title}</h3>
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-foreground mb-2 truncate">{item.title}</h3>
                       <Badge className={getTagColor(item.tag)}>{item.tag}</Badge>
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove ${item.title}`}
-                      disabled={removeItem.isPending}
-                      onClick={() => removeItem.mutate(item.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Rename ${item.title}`}
+                        disabled={updateItem.isPending || removeItem.isPending}
+                        onClick={() => openRename(item)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Remove ${item.title}`}
+                        disabled={removeItem.isPending}
+                        onClick={() => removeItem.mutate(item.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -192,13 +248,13 @@ export function Wardrobe() {
                   onChange={handleFileUpload}
                   className="sr-only"
                   id="wardrobe-empty-upload"
-                  disabled={upload.isPending || Boolean(pendingFile)}
+                  disabled={busy}
                 />
-                <Button asChild disabled={upload.isPending || Boolean(pendingFile)}>
+                <Button asChild disabled={busy}>
                   <label
                     htmlFor="wardrobe-empty-upload"
                     className={`cursor-pointer inline-flex items-center ${
-                      upload.isPending || pendingFile ? 'pointer-events-none opacity-50' : ''
+                      busy ? 'pointer-events-none opacity-50' : ''
                     }`}
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -211,17 +267,18 @@ export function Wardrobe() {
         )}
       </div>
 
+      {/* Name new upload before it is saved */}
       <Dialog
         open={Boolean(pendingFile)}
         onOpenChange={(open) => {
-          if (!open) closeNameDialog();
+          if (!open) closeUploadDialog();
         }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Name this piece</DialogTitle>
             <DialogDescription>
-              Choose a clear name before it is saved to your wardrobe. Chat can use this title later.
+              Set a clear name before it is saved to your wardrobe. You can rename it again later.
             </DialogDescription>
           </DialogHeader>
 
@@ -239,7 +296,7 @@ export function Wardrobe() {
             <Label htmlFor="wardrobe-item-title">Name</Label>
             <Input
               id="wardrobe-item-title"
-              ref={titleInputRef}
+              ref={uploadTitleRef}
               value={pendingTitle}
               onChange={(e) => setPendingTitle(e.target.value)}
               maxLength={120}
@@ -258,7 +315,7 @@ export function Wardrobe() {
             <Button
               type="button"
               variant="outline"
-              onClick={closeNameDialog}
+              onClick={closeUploadDialog}
               disabled={upload.isPending}
             >
               Cancel
@@ -269,6 +326,70 @@ export function Wardrobe() {
               disabled={upload.isPending || !pendingTitle.trim()}
             >
               {upload.isPending ? 'Saving…' : 'Add to wardrobe'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename an existing card */}
+      <Dialog
+        open={Boolean(renamingItem)}
+        onOpenChange={(open) => {
+          if (!open) closeRename();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename item</DialogTitle>
+            <DialogDescription>
+              Update the name used in your wardrobe and when chat references this piece.
+            </DialogDescription>
+          </DialogHeader>
+
+          {renamingItem && (
+            <div className="mx-auto w-40 aspect-square overflow-hidden rounded-md border bg-muted">
+              <img
+                src={renamingItem.imageUrl}
+                alt={renamingItem.title}
+                className="h-full w-full object-cover"
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="wardrobe-rename-title">Name</Label>
+            <Input
+              id="wardrobe-rename-title"
+              ref={renameTitleRef}
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.target.value)}
+              maxLength={120}
+              placeholder="e.g. Navy blazer"
+              disabled={updateItem.isPending}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirmRename();
+                }
+              }}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeRename}
+              disabled={updateItem.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmRename}
+              disabled={updateItem.isPending || !renameTitle.trim()}
+            >
+              {updateItem.isPending ? 'Saving…' : 'Save name'}
             </Button>
           </DialogFooter>
         </DialogContent>
