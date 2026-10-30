@@ -213,6 +213,8 @@ curl -s http://localhost:3000/api/chat \
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 docker compose --profile full up --build
+# Wardrobe/cart need COOKIE_SECURE=false on http://localhost (Compose default).
+# After pulling M5 fixes: docker compose --profile full up -d --build api
 ```
 
 App: http://localhost:3000 · DB only reachable as `postgres` inside the network (host still uses `localhost:5432` if the postgres service is up).
@@ -264,7 +266,10 @@ See [docs/MILESTONE_0B_NOTES.md](docs/MILESTONE_0B_NOTES.md).
 - [Milestone 3.5 prompt / retrieval eval](docs/MILESTONE_3_5_NOTES.md)
 - [Milestone 3.6 search / browse](docs/MILESTONE_3_6_NOTES.md)
 - [Milestone 4 virtual try-on](docs/MILESTONE_4_NOTES.md)
+- [Milestone 5 wardrobe](docs/MILESTONE_5_NOTES.md)
 - [VTO ops (overlay / hosted / python)](docs/VTO.md)
+- [Kolors (future local VTO)](docs/KOLORS.md)
+- [Risks & backlog](docs/RISKS_AND_BACKLOG.md)
 - [Conversation simulations (eval:chat)](docs/EVAL_CHAT.md)
 
 ## License

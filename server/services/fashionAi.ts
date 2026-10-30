@@ -1,14 +1,20 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Message } from "@shared/schema";
+import { Message, type WardrobeItem } from "@shared/schema";
 import { generateLocalFashionResponse } from "./fashionData";
 import { trySmallTalkReply } from "./fashionSmallTalk";
 import { searchDeepFashionDetailed } from "./deepFashion";
-import { resolveOutfitSuggestions } from "./catalog";
+import { resolveOutfitSuggestions, type OutfitSource } from "./catalog";
 import {
   FashionQueryPlan,
   buildRetrievalPlan,
   mergeMentorHintsForDisplay,
 } from "./fashionIntent";
+import {
+  formatWardrobeInventory,
+  selectWardrobeForChat,
+} from "./wardrobe";
+import type { FashionOutfit } from "../../client/src/lib/types";
+import type { MatchQuality } from "./deepFashion";
 
 const anthropic = new Anthropic({ 
   apiKey: process.env.ANTHROPIC_API_KEY || "" 
@@ -38,7 +44,10 @@ const INTENT_APPENDIX: Record<FashionQueryPlan["intent"], string> = {
     "GENERAL policy: balanced outfit advice; still respect audience if stated.",
 };
 
-function buildSystemPrompt(retrievalPlan: FashionQueryPlan): string {
+function buildSystemPrompt(
+  retrievalPlan: FashionQueryPlan,
+  wardrobeInventory: string
+): string {
   return `You are Vesta, a fashion mentor. Help users combine clothes, find similar pieces, choose colors, and refine style.
 
 ## Locked retrieval plan (do not change)
@@ -54,6 +63,10 @@ ${retrievalPlan.needsFollowUp ? "- needsFollowUp: true — ask the missing slots
 ${INTENT_APPENDIX[retrievalPlan.intent]}
 
 Never describe or imply men's catalog looks (gentleman, man, guy, his…) when audience is feminine, and the reverse for masculine.
+
+## ${wardrobeInventory}
+
+When the user asks about something they own, name those wardrobe pieces in prose. Closet items are never for sale — shoppable cards come only from the affiliate catalog (server-injected).
 
 ## Response format
 Write a short human explanation, then ONE json code block:
@@ -73,8 +86,9 @@ Write a short human explanation, then ONE json code block:
 \`\`\`
 
 Rules:
-- outfits: ALWAYS leave as []. The server injects affiliate products or DeepFashion imagery (unless follow-up).
+- outfits: ALWAYS leave as []. The server injects wardrobe (non-shoppable), affiliate products, or DeepFashion imagery (unless follow-up).
 - Never invent Unsplash or other external image URLs.
+- Never invent buy links for wardrobe pieces.
 - colors: ALWAYS []. Mention navy/cream/etc. in the prose only — no swatch tiles.
 - accessories: Remix Icon class names (ri-*) when helpful; else [].
 
@@ -117,12 +131,40 @@ async function injectOutfits(
   assistantMessage: string,
   retrievalPlan: FashionQueryPlan,
   displayPlan: FashionQueryPlan,
+  userMessage: string,
+  wardrobe: WardrobeItem[],
   limit = 4
 ): Promise<string> {
-  const { outfits, source, match, categories } = await resolveOutfitSuggestions(
+  const wardrobeOutfits = selectWardrobeForChat(
+    wardrobe,
     retrievalPlan,
-    limit,
-    searchDeepFashionDetailed
+    userMessage,
+    2
+  );
+
+  // Follow-up turns: still surface owned pieces, but do not inject shoppable catalog
+  let catalogOutfits: FashionOutfit[] = [];
+  let source: OutfitSource = "none";
+  let match: MatchQuality = "empty";
+  let categories: FashionQueryPlan["targetCategories"] = [];
+
+  if (!retrievalPlan.needsFollowUp) {
+    const catalogLimit = Math.max(1, limit - wardrobeOutfits.length);
+    const resolved = await resolveOutfitSuggestions(
+      retrievalPlan,
+      catalogLimit,
+      searchDeepFashionDetailed
+    );
+    catalogOutfits = resolved.outfits;
+    source = resolved.source;
+    match = resolved.match;
+    categories = resolved.categories;
+  }
+
+  // Wardrobe first (owned, non-shoppable), then affiliate / DeepFashion
+  const outfits: FashionOutfit[] = [...wardrobeOutfits, ...catalogOutfits].slice(
+    0,
+    limit
   );
 
   if (outfits.length === 0) {
@@ -143,6 +185,7 @@ async function injectOutfits(
     catalogSource: source,
     matchQuality: match,
     retrievedCategories: categories,
+    wardrobeReferenced: wardrobeOutfits.length > 0,
     outfits,
   };
 
@@ -189,11 +232,13 @@ function shouldAttachCatalog(plan: FashionQueryPlan, userMessage: string): boole
 /**
  * Generate fashion response using Anthropic Claude, optionally with image analysis.
  * Classify (heuristic + policy) drives retrieval; Claude mentors with a locked plan.
+ * Wardrobe items (session closet) ground prose + non-shoppable cards; catalog stays affiliate.
  */
 export async function generateFashionResponse(
-  userMessage: string, 
-  history: Message[] = [], 
-  imageData?: string
+  userMessage: string,
+  history: Message[] = [],
+  imageData?: string,
+  wardrobe: WardrobeItem[] = []
 ) {
   const hasImage = Boolean(imageData);
   if (!hasImage) {
@@ -208,6 +253,7 @@ export async function generateFashionResponse(
     .filter(Boolean)
     .slice(-6);
   const retrievalPlan = buildRetrievalPlan(userMessage, hasImage, priorUserTexts);
+  const wardrobeInventory = formatWardrobeInventory(wardrobe);
 
   if (useLocalDataFallback) {
     const localResponse = await generateLocalFashionResponse(
@@ -216,7 +262,17 @@ export async function generateFashionResponse(
       priorUserTexts
     );
     let formattedResponse = localResponse.message;
-    if (localResponse.outfits || localResponse.accessories) {
+    const wardrobeOutfits = selectWardrobeForChat(
+      wardrobe,
+      retrievalPlan,
+      userMessage,
+      2
+    );
+    const outfits = [
+      ...wardrobeOutfits,
+      ...(localResponse.outfits || []),
+    ].slice(0, 4);
+    if (outfits.length || localResponse.accessories) {
       formattedResponse +=
         "\n\n```json\n" +
         JSON.stringify(
@@ -227,8 +283,9 @@ export async function generateFashionResponse(
             targetCategories: retrievalPlan.targetCategories,
             colors: [],
             styleTags: retrievalPlan.styleTags,
-            outfits: localResponse.outfits || [],
+            outfits,
             accessories: localResponse.accessories || [],
+            wardrobeReferenced: wardrobeOutfits.length > 0,
           },
           null,
           2
@@ -237,7 +294,7 @@ export async function generateFashionResponse(
     }
     return { message: formattedResponse, responseType: "text" };
   }
-  
+
   try {
     const conversationHistory = prepareConversationHistory(history);
     let messages: any[] = [...conversationHistory];
@@ -245,9 +302,9 @@ export async function generateFashionResponse(
     if (imageData) {
       let base64Data: string;
       let mediaType: string = "image/jpeg";
-      
-      if (imageData.includes('base64,')) {
-        const parts = imageData.split(',');
+
+      if (imageData.includes("base64,")) {
+        const parts = imageData.split(",");
         const header = parts[0];
         base64Data = parts[1];
         const mediaTypeMatch = header.match(/data:([^;]+)/);
@@ -285,19 +342,16 @@ export async function generateFashionResponse(
       messages.push({ role: "user", content: userMessage });
     }
 
-    const models = [
-      "claude-sonnet-5-5",
-      "claude-haiku-5-5",
-    ];
-    
+    const models = ["claude-haiku-4-5"];
+
     let response;
     let lastError;
-    
+
     for (const model of models) {
       try {
         response = await anthropic.messages.create({
           model: model,
-          system: buildSystemPrompt(retrievalPlan),
+          system: buildSystemPrompt(retrievalPlan, wardrobeInventory),
           messages: messages,
           temperature: 0.4,
           max_tokens: 1200,
@@ -312,7 +366,7 @@ export async function generateFashionResponse(
         throw error;
       }
     }
-    
+
     if (!response) {
       throw lastError || new Error("Failed to get response from any model");
     }
@@ -327,12 +381,24 @@ export async function generateFashionResponse(
       mentorHintsFromAssistant(assistantMessage)
     );
 
-    if (shouldAttachCatalog(retrievalPlan, userMessage) || hasImage) {
+    const wardrobeHits = selectWardrobeForChat(
+      wardrobe,
+      retrievalPlan,
+      userMessage,
+      2
+    );
+    if (
+      shouldAttachCatalog(retrievalPlan, userMessage) ||
+      hasImage ||
+      wardrobeHits.length > 0
+    ) {
       try {
         assistantMessage = await injectOutfits(
           assistantMessage,
           retrievalPlan,
           displayPlan,
+          userMessage,
+          wardrobe,
           4
         );
       } catch (error) {
@@ -346,7 +412,7 @@ export async function generateFashionResponse(
     };
   } catch (error: any) {
     console.error("Error generating fashion response:", error);
-    
+
     if (error?.status === 429 || error?.error?.type === "insufficient_quota") {
       console.log("Anthropic API quota exceeded, switching to local data mode");
       useLocalDataFallback = true;
@@ -362,8 +428,18 @@ export async function generateFashionResponse(
       priorUserTexts
     );
     let formattedResponse = localResponse.message;
+    const wardrobeOutfits = selectWardrobeForChat(
+      wardrobe,
+      retrievalPlan,
+      userMessage,
+      2
+    );
+    const outfits = [
+      ...wardrobeOutfits,
+      ...(localResponse.outfits || []),
+    ].slice(0, 4);
 
-    if (localResponse.colors || localResponse.outfits || localResponse.accessories) {
+    if (localResponse.colors || outfits.length || localResponse.accessories) {
       formattedResponse +=
         "\n\n```json\n" +
         JSON.stringify(
@@ -374,8 +450,9 @@ export async function generateFashionResponse(
             targetCategories: retrievalPlan.targetCategories,
             colors: [],
             styleTags: retrievalPlan.styleTags,
-            outfits: localResponse.outfits || [],
+            outfits,
             accessories: localResponse.accessories || [],
+            wardrobeReferenced: wardrobeOutfits.length > 0,
           },
           null,
           2

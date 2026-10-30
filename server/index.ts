@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { objectStorage } from "./services/objectStorage";
 import { anonymousSession } from "./middleware/session";
+import { ensureWardrobeItemsTable } from "./db";
 
 const app = express();
 // Increase the payload size limit to 50MB for handling images
@@ -59,6 +60,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await ensureWardrobeItemsTable();
+  log("wardrobe_items table ready");
+
   if ((process.env.STORAGE_MODE || "local") === "local") {
     await objectStorage.ensureReady();
     log(`object storage ready (mode=${objectStorage.mode})`);

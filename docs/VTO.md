@@ -28,7 +28,7 @@ The dialog shows **Live try-on** and discloses that the photo is sent to Replica
 
 ## Optional — Python sidecar
 
-Same overlay as Node, plus a hook if you later wire local weights (gitignored `Kolors/` is not required):
+Same overlay as Node. Local Kolors weights are a later optional path ([KOLORS.md](KOLORS.md)); gitignored `Kolors/` is not required:
 
 ```bash
 npm run docker:vto

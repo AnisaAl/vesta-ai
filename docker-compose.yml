@@ -35,6 +35,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       STORAGE_MODE: local
       STORAGE_LOCAL_ROOT: /app/uploads
+      # Compose serves http://localhost — Secure cookies would be dropped by the browser
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       # overlay (default Demo) | hosted (Replicate) | python (sidecar)
       VTO_PROVIDER: ${VTO_PROVIDER:-overlay}
       REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}

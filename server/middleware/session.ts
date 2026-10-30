@@ -42,8 +42,19 @@ function newToken(): string {
   return randomBytes(32).toString("hex");
 }
 
+/**
+ * Secure cookies require HTTPS. Docker Compose runs NODE_ENV=production on
+ * http://localhost — if we set Secure from NODE_ENV alone, browsers drop the
+ * cookie and cart/wardrobe sessions never stick.
+ *
+ * Opt in with COOKIE_SECURE=true behind real HTTPS; default is false.
+ */
+function cookieSecure(): boolean {
+  const raw = (process.env.COOKIE_SECURE || "").trim().toLowerCase();
+  return raw === "true" || raw === "1";
+}
+
 function writeSessionCookie(res: Response, token: string): void {
-  const secure = process.env.NODE_ENV === "production";
   const parts = [
     `${SESSION_COOKIE}=${token}`,
     "Path=/",
@@ -51,7 +62,7 @@ function writeSessionCookie(res: Response, token: string): void {
     "SameSite=Lax",
     `Max-Age=${ONE_YEAR_SECONDS}`,
   ];
-  if (secure) parts.push("Secure");
+  if (cookieSecure()) parts.push("Secure");
   res.setHeader("Set-Cookie", parts.join("; "));
 }
 

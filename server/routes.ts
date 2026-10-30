@@ -6,6 +6,32 @@ import { messageSchema } from "@shared/schema";
 import { generateFashionResponse } from "./services/fashionAi";
 import { processVirtualTryOn, resolveVtoProvider, hostedVtoConfigured } from "./services/virtualTryOn";
 import { getDeepFashionRecommendations, getDeepFashionOutfits } from "./services/deepFashion";
+import { objectStorage } from "./services/objectStorage";
+import { inferCategoryFromTitle } from "./services/wardrobe";
+import { randomUUID } from "crypto";
+
+const WARDROBE_TAGS = ["casual", "business", "colorful", "festive", "other"] as const;
+
+function decodeDataUrl(imageData: string): { buffer: Buffer; contentType: string; ext: string } {
+  let contentType = "image/jpeg";
+  let base64 = imageData.trim();
+  const comma = base64.indexOf(",");
+  if (base64.startsWith("data:") && comma !== -1) {
+    const header = base64.slice(0, comma);
+    base64 = base64.slice(comma + 1);
+    const match = header.match(/data:([^;]+)/);
+    if (match) contentType = match[1];
+  }
+  const ext =
+    contentType.includes("png")
+      ? "png"
+      : contentType.includes("webp")
+        ? "webp"
+        : contentType.includes("gif")
+          ? "gif"
+          : "jpg";
+  return { buffer: Buffer.from(base64.replace(/\s/g, ""), "base64"), contentType, ext };
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check for Docker / load balancers
@@ -29,14 +55,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const validatedData = requestSchema.parse(req.body);
-      
+      const wardrobe = await storage.listWardrobeItems(req.sessionId);
+
       // Process the message with Claude (with or without image)
       const response = await generateFashionResponse(
-        validatedData.message, 
+        validatedData.message,
         validatedData.history || [],
-        validatedData.imageData
+        validatedData.imageData,
+        wardrobe
       );
-      
+
       return res.json(response);
     } catch (error) {
       console.error('Error processing chat request:', error);
@@ -210,6 +238,148 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(500).json({ 
         message: error instanceof Error ? error.message : 'Error getting recommendations' 
       });
+    }
+  });
+
+  /**
+   * Persisted wardrobe (session-scoped like cart). Uploads go through objectStorage.
+   * Items are never shoppable — chat may reference them; catalog remains affiliate-only.
+   */
+  app.get('/api/wardrobe', async (req, res) => {
+    try {
+      const items = await storage.listWardrobeItems(req.sessionId);
+      return res.json({ success: true, items });
+    } catch (error) {
+      console.error('Error listing wardrobe:', error);
+      return res.status(500).json({ message: 'Error listing wardrobe' });
+    }
+  });
+
+  app.post('/api/wardrobe', async (req, res) => {
+    try {
+      const body = z
+        .object({
+          imageData: z.string().min(32),
+          title: z.string().trim().min(1).max(120).optional(),
+          tag: z.enum(WARDROBE_TAGS).optional(),
+          category: z.string().trim().max(40).optional(),
+          colors: z.array(z.string().trim().min(1).max(40)).max(8).optional(),
+        })
+        .parse(req.body);
+
+      const { buffer, contentType, ext } = decodeDataUrl(body.imageData);
+      if (!contentType.startsWith('image/')) {
+        return res.status(400).json({ message: 'Only image uploads are supported' });
+      }
+      if (buffer.length < 32) {
+        return res.status(400).json({ message: 'Image data is empty or invalid' });
+      }
+      if (buffer.length > 12 * 1024 * 1024) {
+        return res.status(400).json({ message: 'Image too large (max 12MB)' });
+      }
+
+      await objectStorage.ensureReady();
+      const key = `wardrobe/${req.sessionId}/${randomUUID()}.${ext}`;
+      const stored = await objectStorage.putObject(key, buffer, contentType);
+
+      const title = body.title || `Wardrobe item`;
+      const category =
+        body.category && body.category !== "unknown"
+          ? body.category
+          : inferCategoryFromTitle(title);
+
+      try {
+        const localUser = await storage.ensureLocalUser();
+        const item = await storage.createWardrobeItem({
+          sessionId: req.sessionId,
+          userId: localUser.id,
+          title,
+          imageKey: stored.key,
+          imageUrl: stored.url,
+          category,
+          tag: body.tag || "other",
+          colors: body.colors || [],
+        });
+
+        return res.status(201).json({ success: true, item });
+      } catch (dbError) {
+        // Avoid orphan files when the DB insert fails after putObject
+        try {
+          await objectStorage.deleteObject(stored.key);
+        } catch (cleanupError) {
+          console.error('Error cleaning up wardrobe upload after DB failure:', cleanupError);
+        }
+        throw dbError;
+      }
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid wardrobe upload', errors: error.errors });
+      }
+      console.error('Error uploading wardrobe item:', error);
+      return res.status(500).json({ message: 'Error uploading wardrobe item' });
+    }
+  });
+
+  app.patch('/api/wardrobe/:id', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid wardrobe item id' });
+      }
+
+      const body = z
+        .object({
+          title: z.string().trim().min(1).max(120).optional(),
+          tag: z.enum(WARDROBE_TAGS).optional(),
+          category: z.string().trim().max(40).optional(),
+          colors: z.array(z.string().trim().min(1).max(40)).max(8).optional(),
+        })
+        .parse(req.body);
+
+      if (
+        body.title === undefined &&
+        body.tag === undefined &&
+        body.category === undefined &&
+        body.colors === undefined
+      ) {
+        return res.status(400).json({ message: 'No wardrobe fields to update' });
+      }
+
+      const updated = await storage.updateWardrobeItem(req.sessionId, id, body);
+      if (!updated) {
+        return res.status(404).json({ message: 'Wardrobe item not found' });
+      }
+      return res.json({ success: true, item: updated });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid wardrobe update', errors: error.errors });
+      }
+      console.error('Error updating wardrobe item:', error);
+      return res.status(500).json({ message: 'Error updating wardrobe item' });
+    }
+  });
+
+  app.delete('/api/wardrobe/:id', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid wardrobe item id' });
+      }
+
+      const removed = await storage.deleteWardrobeItem(req.sessionId, id);
+      if (!removed) {
+        return res.status(404).json({ message: 'Wardrobe item not found' });
+      }
+      try {
+        await objectStorage.deleteObject(removed.imageKey);
+      } catch (cleanupError) {
+        // Row is already gone; log orphan file for ops rather than failing the client
+        console.error('Error deleting wardrobe image file:', cleanupError);
+      }
+      return res.json({ success: true, item: removed });
+    } catch (error) {
+      console.error('Error deleting wardrobe item:', error);
+      return res.status(500).json({ message: 'Error deleting wardrobe item' });
     }
   });
 
